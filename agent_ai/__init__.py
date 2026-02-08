@@ -1,12 +1,6 @@
-"""Compatibility re-exports for legacy imports.
-
-This module intentionally re-exports from ``agent_ai`` while the codebase migrates
-from Claude-specific naming to provider-agnostic naming.
-"""
-
-from agent_ai import (  # noqa: F401
-    ClaudeAI,
-    ClaudeAIConfig,
+from agent_ai.client import AgentAI, AgentAIConfig, ClaudeAI, ClaudeAIConfig
+from agent_ai.types import (
+    AgentResponse,
     ClaudeResponse,
     Message,
     Metrics,
@@ -18,6 +12,9 @@ from agent_ai import (  # noqa: F401
 )
 
 __all__ = [
+    "AgentAI",
+    "AgentAIConfig",
+    "AgentResponse",
     "ClaudeAI",
     "ClaudeAIConfig",
     "ClaudeResponse",
