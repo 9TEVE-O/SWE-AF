@@ -75,6 +75,7 @@ async def build(
         cfg.qa_model = model
         cfg.code_reviewer_model = model
         cfg.qa_synthesizer_model = model
+        cfg.issue_advisor_model = model
 
     app.note("Build starting", tags=["build", "start"])
 
@@ -153,6 +154,11 @@ async def build(
         "code_reviewer_model": cfg.code_reviewer_model,
         "qa_synthesizer_model": cfg.qa_synthesizer_model,
         "agent_max_turns": cfg.agent_max_turns,
+        # Issue Advisor
+        "agent_timeout_seconds": cfg.agent_timeout_seconds,
+        "issue_advisor_model": cfg.issue_advisor_model,
+        "max_advisor_invocations": cfg.max_advisor_invocations,
+        "enable_issue_advisor": cfg.enable_issue_advisor,
     }
 
     dag_result = _unwrap(await app.call(
@@ -185,13 +191,70 @@ async def build(
         if verification.get("passed", False) or cycle >= cfg.max_verify_fix_cycles:
             break
 
-        # Verification failed — future: build fix issues from verifier's suggested_fixes
+        # Verification failed — generate targeted fix issues
+        failed_criteria = [
+            c for c in verification.get("criteria_results", [])
+            if not c.get("passed", True)
+        ]
+
+        if not failed_criteria:
+            app.note("Verification failed but no specific criteria failures found", tags=["build", "verify"])
+            break
+
         app.note(
-            f"Verification failed, {cfg.max_verify_fix_cycles - cycle} fix cycles remaining",
+            f"Verification failed ({len(failed_criteria)} criteria), "
+            f"{cfg.max_verify_fix_cycles - cycle} fix cycles remaining",
             tags=["build", "verify", "retry"],
         )
-        # TODO: Build targeted fix issues from verification failures
-        break
+
+        # Generate fix issues from failed criteria
+        fix_result = _unwrap(await app.call(
+            f"{NODE_ID}.generate_fix_issues",
+            failed_criteria=failed_criteria,
+            dag_state=dag_result,
+            prd=plan_result["prd"],
+            artifacts_dir=plan_result.get("artifacts_dir", artifacts_dir),
+            model=cfg.verifier_model,
+            permission_mode=cfg.permission_mode,
+            ai_provider=cfg.ai_provider,
+        ), "generate_fix_issues")
+
+        fix_issues = fix_result.get("fix_issues", [])
+        fix_debt = fix_result.get("debt_items", [])
+
+        # Record unfixable criteria as debt
+        for debt in fix_debt:
+            dag_result.setdefault("accumulated_debt", []).append({
+                "type": "unmet_acceptance_criterion",
+                "criterion": debt.get("criterion", ""),
+                "reason": debt.get("reason", ""),
+                "severity": debt.get("severity", "high"),
+            })
+
+        if fix_issues:
+            # Build a mini plan from fix issues and execute them
+            fix_plan = {
+                "prd": plan_result["prd"],
+                "architecture": plan_result.get("architecture", {}),
+                "review": plan_result.get("review", {}),
+                "issues": fix_issues,
+                "levels": [[fi.get("name", f"fix-{i}") for i, fi in enumerate(fix_issues)]],
+                "file_conflicts": [],
+                "artifacts_dir": plan_result.get("artifacts_dir", artifacts_dir),
+                "rationale": f"Fix issues for verification cycle {cycle + 1}",
+            }
+            dag_result = _unwrap(await app.call(
+                f"{NODE_ID}.execute",
+                plan_result=fix_plan,
+                repo_path=repo_path,
+                config=exec_config,
+                git_config=git_config,
+                ai_provider=cfg.ai_provider,
+            ), "execute_fixes")
+            continue  # Re-verify
+        else:
+            app.note("No fixable issues generated — accepting with debt", tags=["build", "verify"])
+            break
 
     success = verification.get("passed", False) if verification else False
     completed = len(dag_result.get("completed_issues", []))

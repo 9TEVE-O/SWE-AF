@@ -2,13 +2,16 @@
 
 This is the INNER loop in the three-nested-loop architecture:
   - INNER (this): coder → QA/review → synthesizer → fix/approve/block
-  - MIDDLE: retry_advisor diagnoses exceptions → retry with guidance
+  - MIDDLE: issue advisor diagnoses failures → adapt ACs/approach/scope
   - OUTER: replanner restructures DAG after unrecoverable failures
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import traceback
 import uuid
 from typing import Callable
 
@@ -18,6 +21,42 @@ from execution.schemas import (
     IssueOutcome,
     IssueResult,
 )
+
+
+async def _call_with_timeout(coro, timeout: int = 2700, label: str = ""):
+    """Wrap a coroutine with asyncio.wait_for timeout."""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"Agent call '{label}' timed out after {timeout}s")
+
+
+# ---------------------------------------------------------------------------
+# Iteration-level checkpoint helpers
+# ---------------------------------------------------------------------------
+
+
+def _iteration_state_path(artifacts_dir: str, issue_name: str) -> str:
+    if not artifacts_dir:
+        return ""
+    return os.path.join(artifacts_dir, "execution", "iterations", f"{issue_name}.json")
+
+
+def _save_iteration_state(artifacts_dir: str, issue_name: str, state: dict) -> None:
+    path = _iteration_state_path(artifacts_dir, issue_name)
+    if not path:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(state, f, indent=2, default=str)
+
+
+def _load_iteration_state(artifacts_dir: str, issue_name: str) -> dict | None:
+    path = _iteration_state_path(artifacts_dir, issue_name)
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, "r") as f:
+        return json.load(f)
 
 
 async def run_coding_loop(
@@ -35,12 +74,13 @@ async def run_coding_loop(
       2. QA and code reviewer run in parallel
       3. Synthesizer merges feedback and decides fix/approve/block
 
-    Returns an IssueResult with the final outcome.
+    Returns an IssueResult with the final outcome, including iteration_history.
     """
     issue_name = issue.get("name", "unknown")
     worktree_path = issue.get("worktree_path", dag_state.repo_path)
     branch_name = issue.get("branch_name", "")
     max_iterations = config.max_coding_iterations
+    timeout = config.agent_timeout_seconds
     permission_mode = ""  # inherits from agent config
 
     # Project context from DAG state — gives agents the big picture
@@ -63,8 +103,22 @@ async def run_coding_loop(
     feedback = ""  # merged feedback from synthesizer (empty on first pass)
     iteration_history: list[dict] = []  # summaries for stuck detection
     files_changed: list[str] = []
+    start_iteration = 1
 
-    for iteration in range(1, max_iterations + 1):
+    # Resume from iteration checkpoint if available
+    existing_state = _load_iteration_state(dag_state.artifacts_dir, issue_name)
+    if existing_state:
+        start_iteration = existing_state.get("iteration", 0) + 1
+        feedback = existing_state.get("feedback", "")
+        files_changed = existing_state.get("files_changed", [])
+        iteration_history = existing_state.get("iteration_history", [])
+        if note_fn:
+            note_fn(
+                f"Resuming {issue_name} from iteration {start_iteration}",
+                tags=["coding_loop", "resume", issue_name],
+            )
+
+    for iteration in range(start_iteration, max_iterations + 1):
         iteration_id = str(uuid.uuid4())[:8]
 
         if note_fn:
@@ -74,50 +128,107 @@ async def run_coding_loop(
             )
 
         # --- 1. CODER ---
-        coder_result = await call_fn(
-            f"{node_id}.run_coder",
-            issue=issue,
-            worktree_path=worktree_path,
-            feedback=feedback,
-            iteration=iteration,
-            iteration_id=iteration_id,
-            project_context=project_context,
-            model=config.coder_model,
-            permission_mode=permission_mode,
-            ai_provider=config.ai_provider,
-        )
+        try:
+            coder_result = await _call_with_timeout(
+                call_fn(
+                    f"{node_id}.run_coder",
+                    issue=issue,
+                    worktree_path=worktree_path,
+                    feedback=feedback,
+                    iteration=iteration,
+                    iteration_id=iteration_id,
+                    project_context=project_context,
+                    model=config.coder_model,
+                    permission_mode=permission_mode,
+                    ai_provider=config.ai_provider,
+                ),
+                timeout=timeout,
+                label=f"coder:{issue_name}:iter{iteration}",
+            )
+        except Exception as e:
+            if note_fn:
+                note_fn(
+                    f"Coder agent failed: {issue_name} iter {iteration}: {e}",
+                    tags=["coding_loop", "coder_error", issue_name],
+                )
+            return IssueResult(
+                issue_name=issue_name,
+                outcome=IssueOutcome.FAILED_UNRECOVERABLE,
+                error_message=f"Coder agent failed on iteration {iteration}: {e}",
+                error_context=traceback.format_exc(),
+                files_changed=files_changed,
+                branch_name=branch_name,
+                attempts=iteration,
+                iteration_history=iteration_history,
+            )
 
         # Track files changed across iterations
         for f in coder_result.get("files_changed", []):
             if f not in files_changed:
                 files_changed.append(f)
 
-        # --- 2. QA + CODE REVIEWER (parallel) ---
-        qa_task = call_fn(
-            f"{node_id}.run_qa",
-            worktree_path=worktree_path,
-            coder_result=coder_result,
-            issue=issue,
-            iteration_id=iteration_id,
-            project_context=project_context,
-            model=config.qa_model,
-            permission_mode=permission_mode,
-            ai_provider=config.ai_provider,
-        )
+        # --- 2. QA + CODE REVIEWER (parallel with error handling) ---
+        try:
+            qa_coro = _call_with_timeout(
+                call_fn(
+                    f"{node_id}.run_qa",
+                    worktree_path=worktree_path,
+                    coder_result=coder_result,
+                    issue=issue,
+                    iteration_id=iteration_id,
+                    project_context=project_context,
+                    model=config.qa_model,
+                    permission_mode=permission_mode,
+                    ai_provider=config.ai_provider,
+                ),
+                timeout=timeout,
+                label=f"qa:{issue_name}:iter{iteration}",
+            )
 
-        review_task = call_fn(
-            f"{node_id}.run_code_reviewer",
-            worktree_path=worktree_path,
-            coder_result=coder_result,
-            issue=issue,
-            iteration_id=iteration_id,
-            project_context=project_context,
-            model=config.code_reviewer_model,
-            permission_mode=permission_mode,
-            ai_provider=config.ai_provider,
-        )
+            review_coro = _call_with_timeout(
+                call_fn(
+                    f"{node_id}.run_code_reviewer",
+                    worktree_path=worktree_path,
+                    coder_result=coder_result,
+                    issue=issue,
+                    iteration_id=iteration_id,
+                    project_context=project_context,
+                    model=config.code_reviewer_model,
+                    permission_mode=permission_mode,
+                    ai_provider=config.ai_provider,
+                ),
+                timeout=timeout,
+                label=f"review:{issue_name}:iter{iteration}",
+            )
 
-        qa_result, review_result = await asyncio.gather(qa_task, review_task)
+            qa_result, review_result = await asyncio.gather(
+                qa_coro, review_coro, return_exceptions=True,
+            )
+
+            # Handle individual failures
+            if isinstance(qa_result, Exception):
+                if note_fn:
+                    note_fn(
+                        f"QA agent failed: {issue_name}: {qa_result}",
+                        tags=["coding_loop", "qa_error", issue_name],
+                    )
+                qa_result = {"passed": False, "summary": f"QA agent failed: {qa_result}"}
+            if isinstance(review_result, Exception):
+                if note_fn:
+                    note_fn(
+                        f"Review agent failed: {issue_name}: {review_result}",
+                        tags=["coding_loop", "review_error", issue_name],
+                    )
+                review_result = {"approved": True, "blocking": False, "summary": f"Review unavailable: {review_result}"}
+        except Exception as e:
+            # Both failed — use safe defaults
+            if note_fn:
+                note_fn(
+                    f"QA+Review both failed: {issue_name}: {e}",
+                    tags=["coding_loop", "qa_review_error", issue_name],
+                )
+            qa_result = {"passed": False, "summary": f"QA unavailable: {e}"}
+            review_result = {"approved": True, "blocking": False, "summary": "Review unavailable"}
 
         if note_fn:
             note_fn(
@@ -127,24 +238,45 @@ async def run_coding_loop(
                 tags=["coding_loop", "feedback", issue_name],
             )
 
-        # --- 3. SYNTHESIZER ---
-        synthesis_result = await call_fn(
-            f"{node_id}.run_qa_synthesizer",
-            qa_result=qa_result,
-            review_result=review_result,
-            iteration_history=iteration_history,
-            iteration_id=iteration_id,
-            worktree_path=worktree_path,
-            issue_summary={
-                "name": issue.get("name", ""),
-                "title": issue.get("title", ""),
-                "acceptance_criteria": issue.get("acceptance_criteria", []),
-            },
-            artifacts_dir=project_context.get("artifacts_dir", ""),
-            model=config.qa_synthesizer_model,
-            permission_mode=permission_mode,
-            ai_provider=config.ai_provider,
-        )
+        # --- 3. SYNTHESIZER (with fallback) ---
+        try:
+            synthesis_result = await _call_with_timeout(
+                call_fn(
+                    f"{node_id}.run_qa_synthesizer",
+                    qa_result=qa_result,
+                    review_result=review_result,
+                    iteration_history=iteration_history,
+                    iteration_id=iteration_id,
+                    worktree_path=worktree_path,
+                    issue_summary={
+                        "name": issue.get("name", ""),
+                        "title": issue.get("title", ""),
+                        "acceptance_criteria": issue.get("acceptance_criteria", []),
+                    },
+                    artifacts_dir=project_context.get("artifacts_dir", ""),
+                    model=config.qa_synthesizer_model,
+                    permission_mode=permission_mode,
+                    ai_provider=config.ai_provider,
+                ),
+                timeout=timeout,
+                label=f"synthesizer:{issue_name}:iter{iteration}",
+            )
+        except Exception as e:
+            if note_fn:
+                note_fn(
+                    f"Synthesizer failed: {issue_name}: {e} — using fallback",
+                    tags=["coding_loop", "synthesizer_error", issue_name],
+                )
+            # Smart fallback: derive action from raw QA/review results
+            qa_passed = qa_result.get("passed", False)
+            review_approved = review_result.get("approved", False)
+            review_blocking = review_result.get("blocking", False)
+            if qa_passed and review_approved and not review_blocking:
+                synthesis_result = {"action": "approve", "summary": "Auto-approved (synthesizer unavailable)"}
+            elif review_blocking:
+                synthesis_result = {"action": "block", "summary": f"Blocked by review (synthesizer unavailable): {review_result.get('summary', '')}"}
+            else:
+                synthesis_result = {"action": "fix", "summary": f"Auto-fix (synthesizer unavailable): QA={qa_result.get('summary','')}, Review={review_result.get('summary','')}"}
 
         action = synthesis_result.get("action", "fix")
         summary = synthesis_result.get("summary", "")
@@ -165,6 +297,14 @@ async def run_coding_loop(
                 tags=["coding_loop", "synthesis", issue_name],
             )
 
+        # Save iteration-level checkpoint
+        _save_iteration_state(dag_state.artifacts_dir, issue_name, {
+            "iteration": iteration,
+            "feedback": summary,
+            "files_changed": files_changed,
+            "iteration_history": iteration_history,
+        })
+
         # --- 4. BRANCH ON ACTION ---
         if action == "approve":
             if note_fn:
@@ -179,6 +319,7 @@ async def run_coding_loop(
                 files_changed=files_changed,
                 branch_name=branch_name,
                 attempts=iteration,
+                iteration_history=iteration_history,
             )
 
         if action == "block":
@@ -194,15 +335,11 @@ async def run_coding_loop(
                 files_changed=files_changed,
                 branch_name=branch_name,
                 attempts=iteration,
+                iteration_history=iteration_history,
             )
 
         # action == "fix" — read feedback file and continue
-        feedback_file = synthesis_result.get("feedback_file", "")
-        if feedback_file:
-            # The synthesizer wrote feedback to a file; coder will get summary
-            feedback = summary
-        else:
-            feedback = summary
+        feedback = summary
 
         # Stuck detection from synthesizer
         if synthesis_result.get("stuck", False):
@@ -218,6 +355,7 @@ async def run_coding_loop(
                 files_changed=files_changed,
                 branch_name=branch_name,
                 attempts=iteration,
+                iteration_history=iteration_history,
             )
 
     # Loop exhausted without approval
@@ -234,4 +372,5 @@ async def run_coding_loop(
         files_changed=files_changed,
         branch_name=branch_name,
         attempts=max_iterations,
+        iteration_history=iteration_history,
     )

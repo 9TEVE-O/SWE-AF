@@ -75,6 +75,8 @@ You must return a JSON object conforming to the ReplanDecision schema. Be precis
 def replanner_task_prompt(
     dag_state: DAGState,
     failed_issues: list[IssueResult],
+    escalation_notes: list[dict] | None = None,
+    adaptation_history: list[dict] | None = None,
 ) -> str:
     """Build the task prompt for the replanner agent.
 
@@ -173,6 +175,46 @@ def replanner_task_prompt(
                 f"### Replan #{i + 1}: {prev.action.value}\n"
                 f"Rationale: {prev.rationale}\n"
                 f"Summary: {prev.summary}"
+            )
+
+    # --- Issue Advisor Escalation Notes ---
+    if escalation_notes:
+        sections.append("\n## Issue Advisor Escalation Notes")
+        sections.append(
+            "These issues were analyzed by the Issue Advisor before escalation. "
+            "Use its diagnosis as a head start — do not repeat work it already did."
+        )
+        for note in escalation_notes:
+            sections.append(
+                f"### {note.get('issue_name', '?')}\n"
+                f"**Escalation context**: {note.get('escalation_context', '(none)')}"
+            )
+            adaptations = note.get("adaptations", [])
+            if adaptations:
+                sections.append("**Previous adaptations tried**:")
+                for a in adaptations:
+                    sections.append(
+                        f"  - {a.get('adaptation_type', '?')}: {a.get('rationale', '')}"
+                    )
+
+    # --- Adaptation History ---
+    if adaptation_history:
+        sections.append("\n## Adaptation History (ACs already modified — do not duplicate)")
+        for entry in adaptation_history:
+            sections.append(
+                f"- **{entry.get('adaptation_type', '?')}** on issue "
+                f"(rationale: {entry.get('rationale', '')})"
+            )
+            if entry.get("dropped_criteria"):
+                sections.append(f"  Dropped: {entry['dropped_criteria']}")
+
+    # --- Accumulated Debt ---
+    if hasattr(dag_state, "accumulated_debt") and dag_state.accumulated_debt:
+        sections.append("\n## Accumulated Technical Debt")
+        for debt in dag_state.accumulated_debt:
+            sections.append(
+                f"- [{debt.get('severity', 'medium')}] {debt.get('type', '?')}: "
+                f"{debt.get('description', debt.get('criterion', ''))}"
             )
 
     # --- Instructions ---

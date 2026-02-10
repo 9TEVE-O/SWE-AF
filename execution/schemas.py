@@ -11,13 +11,85 @@ from pydantic import BaseModel
 DEFAULT_AGENT_MAX_TURNS: int = 150
 
 
+class AdvisorAction(str, Enum):
+    """What the Issue Advisor decided to do after a coding loop failure."""
+
+    RETRY_MODIFIED = "retry_modified"          # Relax ACs, retry coding loop
+    RETRY_APPROACH = "retry_approach"          # Keep ACs, different strategy
+    SPLIT = "split"                            # Break into sub-issues
+    ACCEPT_WITH_DEBT = "accept_with_debt"      # Close enough, record gaps
+    ESCALATE_TO_REPLAN = "escalate_to_replan"  # Flag for outer loop
+
+
 class IssueOutcome(str, Enum):
     """Outcome of executing a single issue."""
 
     COMPLETED = "completed"
+    COMPLETED_WITH_DEBT = "completed_with_debt"   # Accepted via ACCEPT_WITH_DEBT
     FAILED_RETRYABLE = "failed_retryable"
     FAILED_UNRECOVERABLE = "failed_unrecoverable"
+    FAILED_NEEDS_SPLIT = "failed_needs_split"     # Advisor wants to split
+    FAILED_ESCALATED = "failed_escalated"         # Advisor escalated to replanner
     SKIPPED = "skipped"
+
+
+class IssueAdaptation(BaseModel):
+    """Records one AC/scope modification. Accumulated as technical debt."""
+
+    adaptation_type: AdvisorAction
+    original_acceptance_criteria: list[str] = []
+    modified_acceptance_criteria: list[str] = []
+    dropped_criteria: list[str] = []
+    failure_diagnosis: str = ""
+    rationale: str = ""
+    new_approach: str = ""
+    missing_functionality: list[str] = []
+    downstream_impact: str = ""
+    severity: str = "medium"
+
+
+class SplitIssueSpec(BaseModel):
+    """Sub-issue spec when advisor decides to SPLIT."""
+
+    name: str
+    title: str
+    description: str
+    acceptance_criteria: list[str]
+    depends_on: list[str] = []
+    provides: list[str] = []
+    files_to_create: list[str] = []
+    files_to_modify: list[str] = []
+    parent_issue_name: str = ""
+
+
+class IssueAdvisorDecision(BaseModel):
+    """Structured output from the Issue Advisor agent."""
+
+    action: AdvisorAction
+    failure_diagnosis: str
+    failure_category: str = ""   # environment|logic|dependency|approach|scope
+    rationale: str
+    confidence: float = 0.5
+    # RETRY_MODIFIED
+    modified_acceptance_criteria: list[str] = []
+    dropped_criteria: list[str] = []
+    modification_justification: str = ""
+    # RETRY_APPROACH
+    new_approach: str = ""
+    approach_changes: list[str] = []
+    # SPLIT
+    sub_issues: list[SplitIssueSpec] = []
+    split_rationale: str = ""
+    # ACCEPT_WITH_DEBT
+    missing_functionality: list[str] = []
+    debt_severity: str = "medium"
+    # ESCALATE_TO_REPLAN
+    escalation_reason: str = ""
+    dag_impact: str = ""
+    suggested_restructuring: str = ""
+    # Always
+    downstream_impact: str = ""
+    summary: str = ""
 
 
 class IssueResult(BaseModel):
@@ -31,6 +103,14 @@ class IssueResult(BaseModel):
     attempts: int = 1
     files_changed: list[str] = []
     branch_name: str = ""
+    # Advisor fields
+    advisor_invocations: int = 0
+    adaptations: list[IssueAdaptation] = []
+    debt_items: list[dict] = []
+    split_request: list[SplitIssueSpec] | None = None
+    escalation_context: str = ""
+    final_acceptance_criteria: list[str] = []
+    iteration_history: list[dict] = []
 
 
 class LevelResult(BaseModel):
@@ -107,6 +187,10 @@ class DAGState(BaseModel):
     # --- Merge/test history ---
     merge_results: list[dict] = []
     integration_test_results: list[dict] = []
+
+    # --- Debt tracking ---
+    accumulated_debt: list[dict] = []
+    adaptation_history: list[dict] = []
 
 
 class GitInitResult(BaseModel):
@@ -281,6 +365,11 @@ class BuildConfig(BaseModel):
     execute_fn_target: str = ""
     ai_provider: Literal["claude", "codex"] = "claude"
     permission_mode: str = ""
+    # Issue Advisor
+    agent_timeout_seconds: int = 2700
+    issue_advisor_model: str = "sonnet"
+    max_advisor_invocations: int = 2
+    enable_issue_advisor: bool = True
 
 
 class BuildResult(BaseModel):
@@ -315,3 +404,8 @@ class ExecutionConfig(BaseModel):
     # Agent limits
     agent_max_turns: int = DEFAULT_AGENT_MAX_TURNS
     ai_provider: Literal["claude", "codex"] = "claude"
+    # Issue Advisor
+    agent_timeout_seconds: int = 2700       # 45 min
+    issue_advisor_model: str = "sonnet"
+    max_advisor_invocations: int = 2
+    enable_issue_advisor: bool = True

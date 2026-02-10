@@ -12,14 +12,37 @@ from typing import Callable
 from execution.dag_utils import apply_replan, find_downstream
 from execution.envelope import unwrap_call_result
 from execution.schemas import (
+    AdvisorAction,
     DAGState,
     ExecutionConfig,
+    IssueAdaptation,
     IssueOutcome,
     IssueResult,
     LevelResult,
     ReplanAction,
     ReplanDecision,
 )
+
+# ---------------------------------------------------------------------------
+# Timeout wrapper
+# ---------------------------------------------------------------------------
+
+
+async def _call_with_timeout(coro, timeout: int = 2700, label: str = ""):
+    """Wrap a coroutine with asyncio.wait_for timeout.
+
+    Args:
+        coro: An awaitable coroutine (already called, e.g. ``call_fn(...)``).
+        timeout: Seconds before raising TimeoutError.
+        label: Human-readable label for error messages.
+    """
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise TimeoutError(
+            f"Agent call '{label}' timed out after {timeout}s"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Git worktree helpers (all delegate to reasoners via call_fn)
@@ -253,6 +276,7 @@ async def _cleanup_worktrees(
     node_id: str,
     note_fn: Callable | None = None,
     level: int = 0,
+    ai_provider: str = "claude",
 ) -> None:
     """Remove worktrees and clean up branches after merge.
 
@@ -276,7 +300,7 @@ async def _cleanup_worktrees(
                 branches_to_clean=branches_to_clean,
                 artifacts_dir=dag_state.artifacts_dir,
                 level=level,
-                ai_provider=config.ai_provider,
+                ai_provider=ai_provider,
             )
             if result.get("success"):
                 if note_fn:
@@ -410,42 +434,268 @@ async def _execute_single_issue(
     node_id: str = "swe-planner",
     note_fn: Callable | None = None,
 ) -> IssueResult:
-    """Execute a single issue with AI-driven retry logic.
+    """Execute a single issue with the Issue Advisor adaptation loop.
 
-    When ``execute_fn`` is provided, uses the external coder path.
     When ``execute_fn`` is None and ``call_fn`` is available, uses the
-    built-in coding loop (coder → QA/review → synthesizer).
+    built-in coding loop. When ``execute_fn`` is provided, uses the external
+    coder path.
 
-    On failure, consults the retry advisor agent (if ``call_fn`` is available)
-    to diagnose the root cause and decide whether a retry with modified guidance
-    could succeed. Falls back to blind retry if no ``call_fn`` is provided.
+    On failure, the Issue Advisor (middle loop) analyzes the failure and
+    decides how to adapt: retry with modified ACs, retry with different
+    approach, accept with debt, split, or escalate to the outer replanner.
     """
     issue_name = issue["name"]
+    original_issue = dict(issue)  # preserve original before any modifications
+    current_issue = dict(issue)
+    adaptations: list[IssueAdaptation] = []
+    debt_items: list[dict] = []
+    last_result: IssueResult | None = None
 
-    # Built-in coding loop path (no external execute_fn)
-    if execute_fn is None and call_fn is not None:
-        from execution.coding_loop import run_coding_loop
-        return await run_coding_loop(
-            issue=issue,
-            dag_state=dag_state,
-            call_fn=call_fn,
-            node_id=node_id,
-            config=config,
-            note_fn=note_fn,
-        )
+    max_advisor = config.max_advisor_invocations if config.enable_issue_advisor else 0
 
-    if execute_fn is None:
-        raise ValueError("No execute_fn or call_fn — cannot execute issue")
+    for advisor_round in range(max_advisor + 1):
+        # --- Run the coding loop (or execute_fn) ---
+        if execute_fn is None and call_fn is not None:
+            from execution.coding_loop import run_coding_loop
+            result = await run_coding_loop(
+                issue=current_issue,
+                dag_state=dag_state,
+                call_fn=call_fn,
+                node_id=node_id,
+                config=config,
+                note_fn=note_fn,
+            )
+        elif execute_fn is not None:
+            result = await _run_execute_fn(
+                execute_fn, current_issue, dag_state, config, call_fn,
+                node_id, issue_name,
+            )
+        else:
+            raise ValueError("No execute_fn or call_fn — cannot execute issue")
 
+        last_result = result
+
+        # Success — return with any accumulated adaptations/debt
+        if result.outcome in (IssueOutcome.COMPLETED, IssueOutcome.COMPLETED_WITH_DEBT):
+            result.adaptations = adaptations
+            result.debt_items = debt_items
+            result.final_acceptance_criteria = current_issue.get("acceptance_criteria", [])
+            return result
+
+        # Advisor budget exhausted or disabled — return raw failure
+        if advisor_round >= max_advisor or call_fn is None:
+            break
+
+        # --- Invoke the Issue Advisor ---
+        if note_fn:
+            note_fn(
+                f"Issue Advisor invocation {advisor_round + 1}/{max_advisor} for {issue_name}",
+                tags=["issue_advisor", "invoke", issue_name],
+            )
+
+        try:
+            advisor_decision = await _call_with_timeout(
+                call_fn(
+                    f"{node_id}.run_issue_advisor",
+                    issue=current_issue,
+                    original_issue=original_issue,
+                    failure_result=result.model_dump(),
+                    iteration_history=result.iteration_history,
+                    dag_state_summary={
+                        "completed_issues": [r.model_dump() for r in dag_state.completed_issues],
+                        "failed_issues": [r.model_dump() for r in dag_state.failed_issues],
+                        "prd_summary": dag_state.prd_summary,
+                        "architecture_summary": dag_state.architecture_summary,
+                        "prd_path": dag_state.prd_path,
+                        "architecture_path": dag_state.architecture_path,
+                        "issues_dir": dag_state.issues_dir,
+                        "artifacts_dir": dag_state.artifacts_dir,
+                        "repo_path": dag_state.repo_path,
+                    },
+                    advisor_invocation=advisor_round + 1,
+                    max_advisor_invocations=max_advisor,
+                    previous_adaptations=[a.model_dump() for a in adaptations],
+                    worktree_path=current_issue.get("worktree_path", dag_state.repo_path),
+                    model=config.issue_advisor_model,
+                    ai_provider=config.ai_provider,
+                ),
+                timeout=config.agent_timeout_seconds,
+                label=f"issue_advisor:{issue_name}:{advisor_round + 1}",
+            )
+        except Exception as e:
+            if note_fn:
+                note_fn(
+                    f"Issue Advisor failed for {issue_name}: {e}",
+                    tags=["issue_advisor", "error", issue_name],
+                )
+            break  # advisor failed — return last coding loop result
+
+        action = advisor_decision.get("action", "accept_with_debt")
+
+        if note_fn:
+            note_fn(
+                f"Issue Advisor decision for {issue_name}: {action}",
+                tags=["issue_advisor", "decision", issue_name],
+            )
+
+        if action == AdvisorAction.RETRY_MODIFIED.value:
+            # Relax ACs, retry coding loop
+            adaptation = IssueAdaptation(
+                adaptation_type=AdvisorAction.RETRY_MODIFIED,
+                original_acceptance_criteria=current_issue.get("acceptance_criteria", []),
+                modified_acceptance_criteria=advisor_decision.get("modified_acceptance_criteria", []),
+                dropped_criteria=advisor_decision.get("dropped_criteria", []),
+                failure_diagnosis=advisor_decision.get("failure_diagnosis", ""),
+                rationale=advisor_decision.get("rationale", ""),
+                downstream_impact=advisor_decision.get("downstream_impact", ""),
+            )
+            adaptations.append(adaptation)
+
+            # Record dropped criteria as debt
+            for dropped in advisor_decision.get("dropped_criteria", []):
+                debt_items.append({
+                    "type": "dropped_acceptance_criterion",
+                    "criterion": dropped,
+                    "issue_name": issue_name,
+                    "justification": advisor_decision.get("modification_justification", ""),
+                    "severity": "medium",
+                })
+
+            current_issue["acceptance_criteria"] = advisor_decision.get(
+                "modified_acceptance_criteria",
+                current_issue.get("acceptance_criteria", []),
+            )
+            continue  # re-enter coding loop
+
+        elif action == AdvisorAction.RETRY_APPROACH.value:
+            # Keep ACs, different strategy
+            adaptation = IssueAdaptation(
+                adaptation_type=AdvisorAction.RETRY_APPROACH,
+                failure_diagnosis=advisor_decision.get("failure_diagnosis", ""),
+                rationale=advisor_decision.get("rationale", ""),
+                new_approach=advisor_decision.get("new_approach", ""),
+                downstream_impact=advisor_decision.get("downstream_impact", ""),
+            )
+            adaptations.append(adaptation)
+
+            # Inject advisor guidance as additional context for the coder
+            current_issue = {
+                **current_issue,
+                "retry_context": advisor_decision.get("new_approach", ""),
+                "approach_changes": advisor_decision.get("approach_changes", []),
+                "previous_error": result.error_message,
+                "retry_diagnosis": advisor_decision.get("failure_diagnosis", ""),
+            }
+            continue  # re-enter coding loop
+
+        elif action == AdvisorAction.ACCEPT_WITH_DEBT.value:
+            # Close enough — record gaps
+            adaptation = IssueAdaptation(
+                adaptation_type=AdvisorAction.ACCEPT_WITH_DEBT,
+                failure_diagnosis=advisor_decision.get("failure_diagnosis", ""),
+                rationale=advisor_decision.get("rationale", ""),
+                missing_functionality=advisor_decision.get("missing_functionality", []),
+                severity=advisor_decision.get("debt_severity", "medium"),
+                downstream_impact=advisor_decision.get("downstream_impact", ""),
+            )
+            adaptations.append(adaptation)
+
+            for missing in advisor_decision.get("missing_functionality", []):
+                debt_items.append({
+                    "type": "missing_functionality",
+                    "description": missing,
+                    "issue_name": issue_name,
+                    "severity": advisor_decision.get("debt_severity", "medium"),
+                })
+
+            return IssueResult(
+                issue_name=issue_name,
+                outcome=IssueOutcome.COMPLETED_WITH_DEBT,
+                result_summary=advisor_decision.get("summary", result.result_summary),
+                files_changed=result.files_changed,
+                branch_name=result.branch_name,
+                attempts=result.attempts,
+                advisor_invocations=advisor_round + 1,
+                adaptations=adaptations,
+                debt_items=debt_items,
+                final_acceptance_criteria=current_issue.get("acceptance_criteria", []),
+                iteration_history=result.iteration_history,
+            )
+
+        elif action == AdvisorAction.SPLIT.value:
+            # Break into sub-issues — handled by the DAG split gate
+            from execution.schemas import SplitIssueSpec
+            sub_issues = [
+                SplitIssueSpec(**s) for s in advisor_decision.get("sub_issues", [])
+            ]
+            return IssueResult(
+                issue_name=issue_name,
+                outcome=IssueOutcome.FAILED_NEEDS_SPLIT,
+                result_summary=advisor_decision.get("split_rationale", ""),
+                error_message=f"Issue advisor recommended splitting into {len(sub_issues)} sub-issues",
+                files_changed=result.files_changed,
+                branch_name=result.branch_name,
+                attempts=result.attempts,
+                advisor_invocations=advisor_round + 1,
+                adaptations=adaptations,
+                debt_items=debt_items,
+                split_request=sub_issues,
+                iteration_history=result.iteration_history,
+            )
+
+        elif action == AdvisorAction.ESCALATE_TO_REPLAN.value:
+            # Flag for outer loop
+            return IssueResult(
+                issue_name=issue_name,
+                outcome=IssueOutcome.FAILED_ESCALATED,
+                result_summary=advisor_decision.get("summary", ""),
+                error_message=advisor_decision.get("escalation_reason", result.error_message),
+                error_context=result.error_context,
+                files_changed=result.files_changed,
+                branch_name=result.branch_name,
+                attempts=result.attempts,
+                advisor_invocations=advisor_round + 1,
+                adaptations=adaptations,
+                debt_items=debt_items,
+                escalation_context=advisor_decision.get("suggested_restructuring", ""),
+                iteration_history=result.iteration_history,
+            )
+
+    # All advisor rounds exhausted — return last failure result with adaptations
+    if last_result is not None:
+        last_result.advisor_invocations = min(advisor_round + 1, max_advisor)
+        last_result.adaptations = adaptations
+        last_result.debt_items = debt_items
+        return last_result
+
+    return IssueResult(
+        issue_name=issue_name,
+        outcome=IssueOutcome.FAILED_UNRECOVERABLE,
+        error_message="No execution attempted",
+    )
+
+
+async def _run_execute_fn(
+    execute_fn: Callable,
+    issue: dict,
+    dag_state: DAGState,
+    config: ExecutionConfig,
+    call_fn: Callable | None,
+    node_id: str,
+    issue_name: str,
+) -> IssueResult:
+    """Run the external execute_fn path with retry logic.
+
+    Wraps execute_fn exceptions into IssueResult for the advisor loop.
+    """
     last_error = ""
     last_context = ""
-    issue_with_context = issue  # may be enriched by retry advisor
+    issue_with_context = issue
 
-    for attempt in range(1, config.max_retries_per_issue + 2):  # +2 because range is exclusive
+    for attempt in range(1, config.max_retries_per_issue + 2):
         try:
             result = await execute_fn(issue_with_context, dag_state)
 
-            # execute_fn can return an IssueResult directly or a dict
             if isinstance(result, IssueResult):
                 result.attempts = attempt
                 return result
@@ -461,7 +711,6 @@ async def _execute_single_issue(
                     branch_name=result.get("branch_name", ""),
                 )
 
-            # If execute_fn returned something unexpected, treat as success
             return IssueResult(
                 issue_name=issue_name,
                 outcome=IssueOutcome.COMPLETED,
@@ -473,44 +722,37 @@ async def _execute_single_issue(
             last_error = str(e)
             last_context = traceback.format_exc()
 
-            if attempt <= config.max_retries_per_issue:
-                if call_fn:
-                    # AI-driven retry: ask retry advisor for diagnosis
-                    try:
-                        advice = await call_fn(
-                            f"{node_id}.run_retry_advisor",
-                            issue=issue_with_context,
-                            error_message=last_error,
-                            error_context=last_context,
-                            attempt_number=attempt,
-                            repo_path=dag_state.repo_path,
-                            prd_summary=dag_state.prd_summary,
-                            architecture_summary=dag_state.architecture_summary,
-                            prd_path=dag_state.prd_path,
-                            architecture_path=dag_state.architecture_path,
-                            artifacts_dir=dag_state.artifacts_dir,
-                            model=config.retry_advisor_model,
-                            ai_provider=config.ai_provider,
-                        )
-                        if not advice.get("should_retry", False):
-                            # Advisor says don't bother retrying
-                            break
-                        # Inject advisor's guidance into the issue for next attempt
-                        issue_with_context = {
-                            **issue,
-                            "retry_context": advice.get("modified_context", ""),
-                            "previous_error": last_error,
-                            "retry_diagnosis": advice.get("diagnosis", ""),
-                        }
-                        continue
-                    except Exception:
-                        # Retry advisor itself failed — fall back to blind retry
-                        continue
-                else:
-                    # No call_fn — fall back to blind retry (backward compat)
+            if attempt <= config.max_retries_per_issue and call_fn:
+                try:
+                    advice = await call_fn(
+                        f"{node_id}.run_retry_advisor",
+                        issue=issue_with_context,
+                        error_message=last_error,
+                        error_context=last_context,
+                        attempt_number=attempt,
+                        repo_path=dag_state.repo_path,
+                        prd_summary=dag_state.prd_summary,
+                        architecture_summary=dag_state.architecture_summary,
+                        prd_path=dag_state.prd_path,
+                        architecture_path=dag_state.architecture_path,
+                        artifacts_dir=dag_state.artifacts_dir,
+                        model=config.retry_advisor_model,
+                        ai_provider=config.ai_provider,
+                    )
+                    if not advice.get("should_retry", False):
+                        break
+                    issue_with_context = {
+                        **issue,
+                        "retry_context": advice.get("modified_context", ""),
+                        "previous_error": last_error,
+                        "retry_diagnosis": advice.get("diagnosis", ""),
+                    }
                     continue
+                except Exception:
+                    continue
+            elif attempt <= config.max_retries_per_issue:
+                continue
 
-    # All attempts exhausted
     return IssueResult(
         issue_name=issue_name,
         outcome=IssueOutcome.FAILED_UNRECOVERABLE,
@@ -559,7 +801,7 @@ async def _execute_level(
             )
             level_result.failed.append(issue_result)
         elif isinstance(result, IssueResult):
-            if result.outcome == IssueOutcome.COMPLETED:
+            if result.outcome in (IssueOutcome.COMPLETED, IssueOutcome.COMPLETED_WITH_DEBT):
                 level_result.completed.append(result)
             elif result.outcome == IssueOutcome.SKIPPED:
                 level_result.skipped.append(result)
@@ -626,12 +868,23 @@ async def _invoke_replanner_via_call(
             tags=["execution", "replan", "start"],
         )
 
+    # Pass escalation context from Issue Advisor if available
+    escalation_notes = []
+    for f in unrecoverable:
+        if f.escalation_context:
+            escalation_notes.append({
+                "issue_name": f.issue_name,
+                "escalation_context": f.escalation_context,
+                "adaptations": [a.model_dump() for a in f.adaptations],
+            })
+
     decision_dict = await call_fn(
         f"{node_id}.run_replanner",
         dag_state=dag_state.model_dump(),
         failed_issues=[f.model_dump() for f in unrecoverable],
         replan_model=config.replan_model,
         ai_provider=config.ai_provider,
+        escalation_notes=escalation_notes,
     )
     return ReplanDecision(**decision_dict)
 
@@ -824,8 +1077,9 @@ async def run_dag(
                 dag_state, active_issues, call_fn, node_id, config, note_fn,
             )
 
-        # Track in-flight issues
+        # Track in-flight issues and checkpoint before execution (Bug 4 fix)
         dag_state.in_flight_issues = [i["name"] for i in active_issues]
+        _save_checkpoint(dag_state, note_fn)
 
         # Execute all issues in this level concurrently
         level_result = await _execute_level(
@@ -878,15 +1132,94 @@ async def run_dag(
                 _cleanup_worktrees(
                     dag_state, branches_to_clean, call_fn, node_id, note_fn,
                     level=dag_state.current_level,
+                    ai_provider=config.ai_provider,
                 )
             )
         else:
             cleanup_task = None
 
-        # REPLAN GATE: check for unrecoverable failures
+        # --- DEBT GATE: process COMPLETED_WITH_DEBT results ---
+        debt_results = [
+            r for r in level_result.completed
+            if r.outcome == IssueOutcome.COMPLETED_WITH_DEBT
+        ]
+        if debt_results:
+            for r in debt_results:
+                for debt in r.debt_items:
+                    dag_state.accumulated_debt.append(debt)
+                for adapt in r.adaptations:
+                    dag_state.adaptation_history.append(adapt.model_dump())
+                # Enrich downstream issues with debt notes
+                downstream = find_downstream(r.issue_name, dag_state.all_issues)
+                for i, iss in enumerate(dag_state.all_issues):
+                    if iss["name"] in downstream:
+                        notes = list(iss.get("debt_notes", []))
+                        debt_desc = "; ".join(
+                            d.get("description", d.get("criterion", ""))
+                            for d in r.debt_items
+                        )
+                        notes.append(
+                            f"NOTE: Upstream '{r.issue_name}' completed with debt: {debt_desc}"
+                        )
+                        dag_state.all_issues[i] = {**iss, "debt_notes": notes}
+            if note_fn:
+                note_fn(
+                    f"Debt gate: {len(debt_results)} issues accepted with debt, "
+                    f"total debt items: {len(dag_state.accumulated_debt)}",
+                    tags=["execution", "debt_gate"],
+                )
+
+        # --- SPLIT GATE: handle FAILED_NEEDS_SPLIT results ---
+        split_results = [
+            f for f in level_result.failed
+            if f.outcome == IssueOutcome.FAILED_NEEDS_SPLIT and f.split_request
+        ]
+        if split_results and call_fn:
+            for sr in split_results:
+                # Build a synthetic replan from the split specs
+                new_issues = []
+                for sub in sr.split_request:
+                    sub_dict = sub.model_dump()
+                    sub_dict["parent_issue_name"] = sr.issue_name
+                    new_issues.append(sub_dict)
+
+                split_decision = ReplanDecision(
+                    action=ReplanAction.MODIFY_DAG,
+                    rationale=f"Issue '{sr.issue_name}' split into {len(new_issues)} sub-issues by Issue Advisor",
+                    new_issues=new_issues,
+                    removed_issue_names=[sr.issue_name],
+                    summary=f"Split {sr.issue_name}",
+                )
+                try:
+                    dag_state = apply_replan(dag_state, split_decision)
+                    issue_by_name = {i["name"]: i for i in dag_state.all_issues}
+
+                    await _write_issue_files_for_replan(
+                        split_decision, dag_state, config, call_fn, node_id, note_fn,
+                    )
+                    if note_fn:
+                        note_fn(
+                            f"Split gate: {sr.issue_name} → {[s.name for s in sr.split_request]}",
+                            tags=["execution", "split_gate"],
+                        )
+                except ValueError as e:
+                    if note_fn:
+                        note_fn(
+                            f"Split produced invalid DAG (cycle): {e}",
+                            tags=["execution", "split_gate", "error"],
+                        )
+
+            # Remove split results from the failed list (they've been handled)
+            level_result.failed = [
+                f for f in level_result.failed
+                if f.outcome != IssueOutcome.FAILED_NEEDS_SPLIT
+            ]
+            _save_checkpoint(dag_state, note_fn)
+
+        # --- REPLAN GATE: check for unrecoverable and escalated failures ---
         unrecoverable = [
             f for f in level_result.failed
-            if f.outcome == IssueOutcome.FAILED_UNRECOVERABLE
+            if f.outcome in (IssueOutcome.FAILED_UNRECOVERABLE, IssueOutcome.FAILED_ESCALATED)
         ]
 
         if unrecoverable:
@@ -983,6 +1316,7 @@ async def run_dag(
             await _cleanup_worktrees(
                 dag_state, all_branches, call_fn, node_id, note_fn,
                 level=dag_state.current_level,
+                ai_provider=config.ai_provider,
             )
 
     if note_fn:

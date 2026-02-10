@@ -14,10 +14,12 @@ from agent_ai import AgentAI, AgentAIConfig
 from agent_ai.types import Tool
 from execution.schemas import (
     DEFAULT_AGENT_MAX_TURNS,
+    AdvisorAction,
     CodeReviewResult,
     CoderResult,
     GitInitResult,
     IntegrationTestResult,
+    IssueAdvisorDecision,
     MergeResult,
     QAResult,
     QASynthesisResult,
@@ -27,6 +29,10 @@ from execution.schemas import (
     VerificationResult,
     WorkspaceInfo,
 )
+from prompts.fix_generator import SYSTEM_PROMPT as FIX_GENERATOR_SYSTEM_PROMPT
+from prompts.fix_generator import fix_generator_task_prompt
+from prompts.issue_advisor import SYSTEM_PROMPT as ISSUE_ADVISOR_SYSTEM_PROMPT
+from prompts.issue_advisor import issue_advisor_task_prompt
 from prompts.code_reviewer import SYSTEM_PROMPT as CODE_REVIEWER_SYSTEM_PROMPT
 from prompts.code_reviewer import code_reviewer_task_prompt
 from prompts.coder import SYSTEM_PROMPT as CODER_SYSTEM_PROMPT
@@ -157,12 +163,102 @@ async def run_retry_advisor(
 
 
 @router.reasoner()
+async def run_issue_advisor(
+    issue: dict,
+    original_issue: dict,
+    failure_result: dict,
+    iteration_history: list[dict],
+    dag_state_summary: dict,
+    advisor_invocation: int = 1,
+    max_advisor_invocations: int = 2,
+    previous_adaptations: list[dict] | None = None,
+    worktree_path: str = "",
+    model: str = "sonnet",
+    permission_mode: str = "",
+    ai_provider: str = "claude",
+) -> dict:
+    """Analyze a coding loop failure and decide how to adapt.
+
+    Returns an IssueAdvisorDecision dict. On agent failure, falls back to
+    ACCEPT_WITH_DEBT (never block the pipeline).
+    """
+    issue_name = issue.get("name", "?")
+    router.note(
+        f"Issue advisor analyzing {issue_name} (invocation {advisor_invocation}/{max_advisor_invocations})",
+        tags=["issue_advisor", "start"],
+    )
+
+    task_prompt = issue_advisor_task_prompt(
+        issue=issue,
+        original_issue=original_issue,
+        failure_result=failure_result,
+        iteration_history=iteration_history,
+        dag_state_summary=dag_state_summary,
+        advisor_invocation=advisor_invocation,
+        max_advisor_invocations=max_advisor_invocations,
+        previous_adaptations=previous_adaptations,
+        worktree_path=worktree_path,
+    )
+
+    artifacts_dir = dag_state_summary.get("artifacts_dir", "")
+    log_dir = os.path.join(artifacts_dir, "logs") if artifacts_dir else None
+    log_path = os.path.join(log_dir, f"issue_advisor_{issue_name}_{advisor_invocation}.jsonl") if log_dir else None
+
+    cwd = worktree_path or dag_state_summary.get("repo_path", ".")
+    ai = AgentAI(AgentAIConfig(
+        model=model,
+        provider=ai_provider,
+        cwd=cwd,
+        max_turns=DEFAULT_AGENT_MAX_TURNS,
+        allowed_tools=[Tool.READ, Tool.GLOB, Tool.GREP, Tool.BASH],
+        permission_mode=permission_mode or None,
+    ))
+
+    try:
+        response = await ai.run(
+            task_prompt,
+            system_prompt=ISSUE_ADVISOR_SYSTEM_PROMPT,
+            output_schema=IssueAdvisorDecision,
+            log_file=log_path,
+        )
+        if response.parsed is not None:
+            router.note(
+                f"Issue advisor decision: {response.parsed.action.value} — {response.parsed.summary}",
+                tags=["issue_advisor", "complete"],
+            )
+            return response.parsed.model_dump()
+    except Exception as e:
+        router.note(
+            f"Issue advisor agent failed: {e}",
+            tags=["issue_advisor", "error"],
+        )
+
+    # Fallback: accept with debt rather than blocking the pipeline
+    fallback = IssueAdvisorDecision(
+        action=AdvisorAction.ACCEPT_WITH_DEBT,
+        failure_diagnosis="Issue Advisor agent failed to produce a valid analysis.",
+        failure_category="environment",
+        rationale="Advisor failure — accepting with debt to avoid pipeline stall.",
+        confidence=0.1,
+        missing_functionality=[f"Full implementation of {issue_name}"],
+        debt_severity="high",
+        summary=f"Issue advisor failed — accepting {issue_name} with debt",
+    )
+    router.note(
+        "Issue advisor failed — falling back to ACCEPT_WITH_DEBT",
+        tags=["issue_advisor", "fallback"],
+    )
+    return fallback.model_dump()
+
+
+@router.reasoner()
 async def run_replanner(
     dag_state: dict,
     failed_issues: list[dict],
     replan_model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    escalation_notes: list[dict] | None = None,
 ) -> dict:
     """Invoke the replanner to decide how to handle unrecoverable failures.
 
@@ -178,7 +274,11 @@ async def run_replanner(
         tags=["replanner", "start"],
     )
 
-    task_prompt = replanner_task_prompt(state, failures)
+    task_prompt = replanner_task_prompt(
+        state, failures,
+        escalation_notes=escalation_notes,
+        adaptation_history=state.adaptation_history if hasattr(state, "adaptation_history") else [],
+    )
 
     log_dir = os.path.join(state.artifacts_dir, "logs") if state.artifacts_dir else None
     log_path = os.path.join(log_dir, f"replanner_{state.replan_count}.jsonl") if log_dir else None
@@ -192,24 +292,45 @@ async def run_replanner(
         permission_mode=permission_mode or None,
     ))
 
-    try:
-        response = await ai.run(
-            task_prompt,
-            system_prompt=REPLANNER_SYSTEM_PROMPT,
-            output_schema=ReplanDecision,
-            log_file=log_path,
-        )
-        if response.parsed is not None:
-            router.note(
-                f"Replan decision: {response.parsed.action.value} — {response.parsed.summary}",
-                tags=["replanner", "complete"],
+    current_prompt = task_prompt
+    for attempt in range(2):
+        try:
+            response = await ai.run(
+                current_prompt,
+                system_prompt=REPLANNER_SYSTEM_PROMPT,
+                output_schema=ReplanDecision,
+                log_file=log_path,
             )
-            return response.parsed.model_dump()
-    except Exception as e:
-        router.note(
-            f"Replanner agent failed: {e}",
-            tags=["replanner", "error"],
-        )
+            # Log raw response for debugging (even on parse failure)
+            if log_dir:
+                raw_log = os.path.join(log_dir, f"replanner_{state.replan_count}_raw_{attempt}.txt")
+                os.makedirs(log_dir, exist_ok=True)
+                with open(raw_log, "w") as f:
+                    f.write(response.text or "(empty)")
+
+            if response.parsed is not None:
+                router.note(
+                    f"Replan decision: {response.parsed.action.value} — {response.parsed.summary}",
+                    tags=["replanner", "complete"],
+                )
+                return response.parsed.model_dump()
+
+            # Parse failed — retry with tighter prompt
+            router.note(
+                f"Replanner produced unparseable output (attempt {attempt + 1}): "
+                f"{(response.text or '')[:500]}",
+                tags=["replanner", "parse_error"],
+            )
+            current_prompt = (
+                "YOUR PREVIOUS RESPONSE COULD NOT BE PARSED. "
+                "Output ONLY valid JSON conforming to the ReplanDecision schema.\n\n"
+                + task_prompt
+            )
+        except Exception as e:
+            router.note(
+                f"Replanner agent failed (attempt {attempt + 1}): {e}",
+                tags=["replanner", "error"],
+            )
 
     # Pitfall 5 fix: fall back to CONTINUE, not ABORT
     # Skip downstream of failed issues but don't kill the pipeline
@@ -1044,3 +1165,86 @@ async def run_qa_synthesizer(
         stuck=False,
         iteration_id=iteration_id,
     ).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Fix generator (verification fix cycles)
+# ---------------------------------------------------------------------------
+
+
+@router.reasoner()
+async def generate_fix_issues(
+    failed_criteria: list[dict],
+    dag_state: dict,
+    prd: dict,
+    artifacts_dir: str = "",
+    model: str = "sonnet",
+    permission_mode: str = "",
+    ai_provider: str = "claude",
+) -> dict:
+    """Generate targeted fix issues from failed verification criteria.
+
+    Returns {fix_issues: [...], debt_items: [...], summary: str}.
+    """
+    router.note(
+        f"Fix generator starting: {len(failed_criteria)} failed criteria",
+        tags=["fix_generator", "start"],
+    )
+
+    repo_path = dag_state.get("repo_path", ".")
+    log_dir = os.path.join(artifacts_dir, "logs") if artifacts_dir else None
+    log_path = os.path.join(log_dir, "fix_generator.jsonl") if log_dir else None
+
+    task_prompt = fix_generator_task_prompt(
+        failed_criteria=failed_criteria,
+        dag_state_summary=dag_state,
+        prd=prd,
+    )
+
+    class FixGeneratorOutput(BaseModel):
+        fix_issues: list[dict] = []
+        debt_items: list[dict] = []
+        summary: str = ""
+
+    ai = AgentAI(AgentAIConfig(
+        model=model,
+        provider=ai_provider,
+        cwd=repo_path,
+        max_turns=DEFAULT_AGENT_MAX_TURNS,
+        allowed_tools=[Tool.READ, Tool.GLOB, Tool.GREP, Tool.BASH],
+        permission_mode=permission_mode or None,
+    ))
+
+    try:
+        response = await ai.run(
+            task_prompt,
+            system_prompt=FIX_GENERATOR_SYSTEM_PROMPT,
+            output_schema=FixGeneratorOutput,
+            log_file=log_path,
+        )
+        if response.parsed is not None:
+            router.note(
+                f"Fix generator complete: {len(response.parsed.fix_issues)} fix issues, "
+                f"{len(response.parsed.debt_items)} debt items",
+                tags=["fix_generator", "complete"],
+            )
+            return response.parsed.model_dump()
+    except Exception as e:
+        router.note(
+            f"Fix generator agent failed: {e}",
+            tags=["fix_generator", "error"],
+        )
+
+    # Fallback: record all as debt
+    return {
+        "fix_issues": [],
+        "debt_items": [
+            {
+                "criterion": c.get("criterion", ""),
+                "reason": "Fix generator failed to analyze",
+                "severity": "high",
+            }
+            for c in failed_criteria
+        ],
+        "summary": "Fix generator failed — all criteria recorded as debt",
+    }
