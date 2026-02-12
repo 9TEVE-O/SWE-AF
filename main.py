@@ -13,7 +13,7 @@ import os
 
 from reasoners import router
 from reasoners.pipeline import _assign_sequence_numbers, _compute_levels, _validate_file_conflicts
-from schemas import PlanResult, ReviewResult
+from reasoners.schemas import PlanResult, ReviewResult
 
 from agentfield import Agent
 from execution.envelope import unwrap_call_result as _unwrap
@@ -36,7 +36,7 @@ async def build(
     repo_path: str,
     artifacts_dir: str = ".artifacts",
     additional_context: str = "",
-    config: dict = {},
+    config: dict | None = None,
     execute_fn_target: str = "",
     ai_provider: str = "claude",
     model: str = "",
@@ -47,7 +47,7 @@ async def build(
 
     This is the single entry point. Pass a goal, get working code.
     """
-    from execution.schemas import BuildConfig, BuildResult
+    from execution.schemas import ALL_MODEL_FIELDS, BuildConfig, BuildResult
 
     cfg = BuildConfig(**config) if config else BuildConfig()
     if execute_fn_target:
@@ -59,23 +59,11 @@ async def build(
     if max_turns > 0:
         cfg.agent_max_turns = max_turns
     if model:
-        # Convenience override: allow a single top-level model to drive all roles.
-        cfg.pm_model = model
-        cfg.architect_model = model
-        cfg.tech_lead_model = model
-        cfg.sprint_planner_model = model
-        cfg.replan_model = model
-        cfg.retry_advisor_model = model
-        cfg.issue_writer_model = model
-        cfg.verifier_model = model
-        cfg.git_model = model
-        cfg.merger_model = model
-        cfg.integration_tester_model = model
-        cfg.coder_model = model
-        cfg.qa_model = model
-        cfg.code_reviewer_model = model
-        cfg.qa_synthesizer_model = model
-        cfg.issue_advisor_model = model
+        # Convenience override: single top-level model sets all 16 fields.
+        for field in ALL_MODEL_FIELDS:
+            setattr(cfg, field, model)
+
+    resolved = cfg.resolved_models()
 
     app.note("Build starting", tags=["build", "start"])
 
@@ -89,11 +77,11 @@ async def build(
         artifacts_dir=artifacts_dir,
         additional_context=additional_context,
         max_review_iterations=cfg.max_review_iterations,
-        pm_model=cfg.pm_model,
-        architect_model=cfg.architect_model,
-        tech_lead_model=cfg.tech_lead_model,
-        sprint_planner_model=cfg.sprint_planner_model,
-        issue_writer_model=cfg.issue_writer_model,
+        pm_model=resolved["pm_model"],
+        architect_model=resolved["architect_model"],
+        tech_lead_model=resolved["tech_lead_model"],
+        sprint_planner_model=resolved["sprint_planner_model"],
+        issue_writer_model=resolved["issue_writer_model"],
         permission_mode=cfg.permission_mode,
         ai_provider=cfg.ai_provider,
     )
@@ -103,7 +91,7 @@ async def build(
         repo_path=repo_path,
         goal=goal,
         artifacts_dir=artifacts_dir,
-        model=cfg.git_model,
+        model=resolved["git_model"],
         permission_mode=cfg.permission_mode,
         ai_provider=cfg.ai_provider,
     )
@@ -136,30 +124,7 @@ async def build(
         )
 
     # 2. EXECUTE
-    exec_config = {
-        "max_retries_per_issue": cfg.max_retries_per_issue,
-        "max_replans": cfg.max_replans,
-        "replan_model": cfg.replan_model,
-        "enable_replanning": cfg.enable_replanning,
-        "retry_advisor_model": cfg.retry_advisor_model,
-        "issue_writer_model": cfg.issue_writer_model,
-        "merger_model": cfg.merger_model,
-        "integration_tester_model": cfg.integration_tester_model,
-        "max_integration_test_retries": cfg.max_integration_test_retries,
-        "enable_integration_testing": cfg.enable_integration_testing,
-        # Coding loop
-        "max_coding_iterations": cfg.max_coding_iterations,
-        "coder_model": cfg.coder_model,
-        "qa_model": cfg.qa_model,
-        "code_reviewer_model": cfg.code_reviewer_model,
-        "qa_synthesizer_model": cfg.qa_synthesizer_model,
-        "agent_max_turns": cfg.agent_max_turns,
-        # Issue Advisor
-        "agent_timeout_seconds": cfg.agent_timeout_seconds,
-        "issue_advisor_model": cfg.issue_advisor_model,
-        "max_advisor_invocations": cfg.max_advisor_invocations,
-        "enable_issue_advisor": cfg.enable_issue_advisor,
-    }
+    exec_config = cfg.to_execution_config_dict()
 
     dag_result = _unwrap(await app.call(
         f"{NODE_ID}.execute",
@@ -183,7 +148,7 @@ async def build(
             completed_issues=[r for r in dag_result.get("completed_issues", [])],
             failed_issues=[r for r in dag_result.get("failed_issues", [])],
             skipped_issues=dag_result.get("skipped_issues", []),
-            model=cfg.verifier_model,
+            model=resolved["verifier_model"],
             permission_mode=cfg.permission_mode,
             ai_provider=cfg.ai_provider,
         ), "run_verifier")
@@ -214,7 +179,7 @@ async def build(
             dag_state=dag_result,
             prd=plan_result["prd"],
             artifacts_dir=plan_result.get("artifacts_dir", artifacts_dir),
-            model=cfg.verifier_model,
+            model=resolved["verifier_model"],
             permission_mode=cfg.permission_mode,
             ai_provider=cfg.ai_provider,
         ), "generate_fix_issues")
@@ -451,7 +416,7 @@ async def execute(
     plan_result: dict,
     repo_path: str,
     execute_fn_target: str = "",
-    config: dict = {},
+    config: dict | None = None,
     git_config: dict | None = None,
     resume: bool = False,
     ai_provider: str = "claude",
@@ -506,7 +471,7 @@ async def execute(
 async def resume_build(
     repo_path: str,
     artifacts_dir: str = ".artifacts",
-    config: dict = {},
+    config: dict | None = None,
     git_config: dict | None = None,
 ) -> dict:
     """Resume a crashed build from the last checkpoint.

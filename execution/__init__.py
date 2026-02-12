@@ -1,12 +1,14 @@
 """Self-healing DAG execution with replanner agent."""
 
 from execution.schemas import (
+    ALL_MODEL_FIELDS,
     DEFAULT_AGENT_MAX_TURNS,
+    MODEL_PRESETS,
+    ROLE_GROUPS,
     BuildConfig,
     BuildResult,
     CodeReviewResult,
     CoderResult,
-    CodingLoopConfig,
     CriterionResult,
     DAGState,
     ExecutionConfig,
@@ -24,15 +26,18 @@ from execution.schemas import (
     RetryAdvice,
     VerificationResult,
     WorkspaceInfo,
+    resolve_models,
 )
 
 __all__ = [
+    "ALL_MODEL_FIELDS",
     "DEFAULT_AGENT_MAX_TURNS",
+    "MODEL_PRESETS",
+    "ROLE_GROUPS",
     "BuildConfig",
     "BuildResult",
     "CodeReviewResult",
     "CoderResult",
-    "CodingLoopConfig",
     "CriterionResult",
     "DAGState",
     "ExecutionConfig",
@@ -50,4 +55,5 @@ __all__ = [
     "RetryAdvice",
     "VerificationResult",
     "WorkspaceInfo",
+    "resolve_models",
 ]

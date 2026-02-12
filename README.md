@@ -1,6 +1,6 @@
-# AF-SWE
+# SWE AgentNode
 
-Production-grade software engineering, not vibe coding. One API call decomposes your goal into a dependency-ordered plan and deploys hundreds of autonomous coding agents — each with full tool use — that architect, code, test, review, and verify in parallel. The output is tested, reviewed, integration-verified code with a debt register for anything that was compromised.
+Autonomous SWE agent node for [AgentField](https://agentfield.ai). Production-grade software engineering, not vibe coding. One API call decomposes your goal into a dependency-ordered plan and deploys hundreds of autonomous coding agents — each with full tool use — that architect, code, test, review, and verify in parallel. The output is tested, reviewed, integration-verified code with a debt register for anything that was compromised.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
@@ -10,7 +10,7 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
 
 ## The problem
 
-AI coding agents can write code. But production software requires architecture review, dependency-ordered execution, test coverage, code review, integration testing, and verification against acceptance criteria — across dozens or hundreds of issues that must compose correctly. That's not a single-session problem. AF-SWE turns coding agents into a coordinated engineering org that delivers the whole thing autonomously.
+AI coding agents can write code. But production software requires architecture review, dependency-ordered execution, test coverage, code review, integration testing, and verification against acceptance criteria — across dozens or hundreds of issues that must compose correctly. That's not a single-session problem. AgentNode turns coding agents into a coordinated engineering org that delivers the whole thing autonomously.
 
 ```mermaid
 flowchart TB
@@ -55,7 +55,7 @@ flowchart TB
     VF -->|pass| DONE[Completed repo + debt register]
 ```
 
-> Each box in the diagram is an independent agent instance — a full coding agent with tool use, file system access, and git operations. A typical build deploys 400–500+ agent instances across parallel worktrees. Tested up to 10,000.
+> Each box in the diagram is an independent agent instance — a full coding agent with tool use, file system access, and git operations. A typical build deploys 400-500+ agent instances across parallel worktrees. Tested up to 10,000.
 
 ## What you get
 
@@ -92,9 +92,9 @@ flowchart LR
 ## Quick start
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 af                 # control plane on :8080
-python main.py     # registers "swe-planner" node
+python3 main.py    # registers "swe-planner" node
 ```
 
 ## API
@@ -172,6 +172,61 @@ Pass `config` to `build` or `execute`. All optional.
 
 Full schema: [`execution/schemas.py`](execution/schemas.py)
 
+### Model configuration
+
+Instead of setting 16 individual `*_model` fields, use **presets** and **role groups** for layered control.
+
+#### Presets
+
+| Preset | Planning | Coding | Orchestration | Lightweight | Use case |
+|--------|----------|--------|---------------|-------------|----------|
+| `turbo` | haiku | haiku | haiku | haiku | Pipeline testing, rapid prototyping |
+| `fast` | sonnet | sonnet | haiku | haiku | Good code quality, cheap orchestration |
+| **`balanced`** | sonnet | sonnet | sonnet | haiku | **Default.** Production quality |
+| `thorough` | sonnet | sonnet | sonnet | sonnet | Uniform sonnet everywhere |
+| `quality` | opus | opus | sonnet | haiku | Best planning + coding |
+
+#### Role groups
+
+| Group | Agents |
+|-------|--------|
+| `planning` | Product Manager, Architect, Tech Lead, Sprint Planner |
+| `coding` | Coder, QA, Code Reviewer |
+| `orchestration` | Replanner, Retry Advisor, Issue Writer, Verifier, Git, Merger, Integration Tester, Issue Advisor |
+| `lightweight` | QA Synthesizer (FIX/APPROVE/BLOCK routing) |
+
+#### Layered resolution
+
+Precedence (lowest → highest): **defaults** < **preset** < **role groups** < **individual fields**
+
+```bash
+# Preset only — opus planning+coding, sonnet orchestration, haiku lightweight
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "quality"}}'
+
+# Group override — opus planning, everything else uses defaults
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "config": {"models": {"planning": "opus"}}}'
+
+# Preset + group override — quality preset but cheap orchestration
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "quality", "models": {"orchestration": "haiku"}}}'
+
+# Preset + individual override — balanced but architect uses opus
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "balanced", "architect_model": "opus"}}'
+
+# Backward compatible — individual *_model fields still work
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "config": {"pm_model": "opus", "architect_model": "opus"}}'
+
+# Top-level model= convenience — sets all 16 fields to the same value
+curl -X POST .../swe-planner.build \
+  -d '{"goal": "...", "repo_path": "...", "model": "opus"}'
+```
+
+Presets and groups are the recommended approach. Individual `*_model` fields are available for fine-tuning.
+
 ## Artifacts
 
 ```
@@ -187,4 +242,19 @@ Full schema: [`execution/schemas.py`](execution/schemas.py)
 - [AgentField](https://agentfield.ai) control plane
 - Anthropic or OpenAI API key
 
-Internals: [ARCHITECTURE.md](ARCHITECTURE.md)
+## Development
+
+```bash
+make test          # unit tests
+make check         # tests + bytecode compile check
+make clean         # remove generated Python/editor cache files
+make clean-examples  # remove Rust build outputs in example folders
+```
+
+`examples/diagrams/` and `examples/pyrust/` are included in git so users can inspect full example outputs, including `.artifacts/logs`.
+
+## Internals
+
+- Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- License: [Apache-2.0](LICENSE)

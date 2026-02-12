@@ -1,5 +1,33 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Environment
 .env
-example-pyrust/
+.env.*
+.python-version
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+**/target/
+*.bak
+
+# AgentField runtime worktrees
 .worktrees/
+**/.worktrees/
