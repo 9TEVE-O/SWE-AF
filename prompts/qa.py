@@ -35,21 +35,11 @@ the test suite with missing edge cases and coverage gaps.
 5. Run all relevant tests.
 6. Report pass/fail with detailed failure information and coverage assessment.
 
-## Artifact Output
+## Structured Output Fields
 
-Write detailed test failure information to:
-`<worktree>/.artifacts/coding-loop/<iteration_id>/test-failures.md`
-
-Format:
-```
-# Test Failures — Iteration <id>
-
-## <test_name>
-- **File**: <path>
-- **Error**: <error message>
-- **Expected**: <expected behavior>
-- **Actual**: <actual behavior>
-```
+Return structured data in your output schema:
+- **test_failures**: list of dicts, each with keys: test_name, file, error, expected, actual
+- **coverage_gaps**: list of acceptance criteria that lack test coverage
 
 ## Tools Available
 
@@ -112,20 +102,13 @@ def qa_task_prompt(
 
     sections.append(f"\n## Working Directory\n`{worktree_path}`")
 
-    artifact_dir = f"{worktree_path}/.artifacts/coding-loop/{iteration_id}"
-    sections.append(f"\n## Artifact Directory\n`{artifact_dir}`")
-    sections.append(
-        f"Write test failure details to: `{artifact_dir}/test-failures.md`"
-    )
-
     sections.append(
         "\n## Your Task\n"
         "1. Review the changed files and acceptance criteria.\n"
-        "2. **Coverage check**: for each AC, verify a test exists. List uncovered ACs.\n"
+        "2. **Coverage check**: for each AC, verify a test exists. List uncovered ACs in `coverage_gaps`.\n"
         "3. Write tests for any uncovered ACs, then add edge cases (empty, None, boundaries, error paths).\n"
         "4. Run all relevant tests.\n"
-        "5. Report results: passed (bool), summary, and path to failures file.\n"
-        "6. Create the artifact directory if it doesn't exist before writing."
+        "5. Report results: passed (bool) and a detailed summary including specific test names, file paths, and error messages for any failures. Populate `test_failures` with structured failure details."
     )
 
     return "\n".join(sections)

@@ -70,7 +70,6 @@ def tech_lead_prompts(
     *,
     prd_path: str,
     architecture_path: str,
-    review_path: str,
     revision_number: int = 0,
 ) -> tuple[str, str]:
     """Return (system_prompt, task_prompt) for the tech lead.
@@ -113,8 +112,6 @@ Read both documents thoroughly, then assess:
 
 5. **Scope alignment**: Does the architecture solve exactly what the PM specified?
    Flag additions or omissions.
-
-Write your review to: {review_path}
 
 Be decisive. Your approval means autonomous agents can implement this safely.
 Your rejection means proceeding would cause rework or integration failures.

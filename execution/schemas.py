@@ -285,7 +285,8 @@ class QAResult(BaseModel):
 
     passed: bool
     summary: str = ""
-    failures_file: str = ""  # path to detailed failures (in .artifacts/)
+    test_failures: list[dict] = []  # [{test_name, file, error, expected, actual}]
+    coverage_gaps: list[str] = []   # ACs without test coverage
     iteration_id: str = ""
 
 
@@ -294,7 +295,6 @@ class CodeReviewResult(BaseModel):
 
     approved: bool
     summary: str = ""
-    issues_file: str = ""  # path to detailed issues (in .artifacts/)
     blocking: bool = False  # True ONLY for security/crash/data-loss
     debt_items: list[dict[str, Any]] = []  # [{severity, title, file_path, description}]
     iteration_id: str = ""
@@ -313,7 +313,6 @@ class QASynthesisResult(BaseModel):
 
     action: QASynthesisAction
     summary: str = ""
-    feedback_file: str = ""  # path to merged feedback for coder
     stuck: bool = False
     iteration_id: str = ""
 

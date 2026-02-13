@@ -59,6 +59,18 @@ def _load_iteration_state(artifacts_dir: str, issue_name: str) -> dict | None:
         return json.load(f)
 
 
+def _save_artifact(artifacts_dir: str, iteration_id: str, name: str, data: dict) -> str:
+    """Save a structured result as a JSON artifact. Returns the file path."""
+    if not artifacts_dir:
+        return ""
+    artifact_dir = os.path.join(artifacts_dir, "coding-loop", iteration_id)
+    os.makedirs(artifact_dir, exist_ok=True)
+    path = os.path.join(artifact_dir, f"{name}.json")
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+    return path
+
+
 async def run_coding_loop(
     issue: dict,
     dag_state: DAGState,
@@ -167,6 +179,8 @@ async def run_coding_loop(
             if f not in files_changed:
                 files_changed.append(f)
 
+        _save_artifact(dag_state.artifacts_dir, iteration_id, "coder", coder_result)
+
         # --- 2. QA + CODE REVIEWER (parallel with error handling) ---
         try:
             qa_coro = _call_with_timeout(
@@ -238,6 +252,9 @@ async def run_coding_loop(
                 tags=["coding_loop", "feedback", issue_name],
             )
 
+        _save_artifact(dag_state.artifacts_dir, iteration_id, "qa", qa_result)
+        _save_artifact(dag_state.artifacts_dir, iteration_id, "review", review_result)
+
         # --- 3. SYNTHESIZER (with fallback) ---
         try:
             synthesis_result = await _call_with_timeout(
@@ -280,6 +297,8 @@ async def run_coding_loop(
 
         action = synthesis_result.get("action", "fix")
         summary = synthesis_result.get("summary", "")
+
+        _save_artifact(dag_state.artifacts_dir, iteration_id, "synthesis", synthesis_result)
 
         # Record iteration for history
         iteration_history.append({
@@ -338,8 +357,25 @@ async def run_coding_loop(
                 iteration_history=iteration_history,
             )
 
-        # action == "fix" — read feedback file and continue
-        feedback = summary
+        # action == "fix" — build rich feedback for the coder
+        if action == "fix":
+            feedback_parts = [summary]
+            test_failures = qa_result.get("test_failures", [])
+            if test_failures:
+                feedback_parts.append("\n### Specific Test Failures")
+                for f in test_failures:
+                    feedback_parts.append(
+                        f"- `{f.get('test_name', '?')}` in `{f.get('file', '?')}`: {f.get('error', '')}"
+                    )
+            debt = review_result.get("debt_items", [])
+            blocking_debt = [d for d in debt if d.get("severity") == "blocking"]
+            if blocking_debt:
+                feedback_parts.append("\n### Blocking Review Issues")
+                for d in blocking_debt:
+                    feedback_parts.append(f"- [{d.get('severity')}] {d.get('title', '?')}: {d.get('description', '')}")
+            feedback = "\n".join(feedback_parts)
+        else:
+            feedback = summary
 
         # Stuck detection from synthesizer
         if synthesis_result.get("stuck", False):

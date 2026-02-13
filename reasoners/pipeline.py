@@ -7,6 +7,7 @@ FastAPI endpoints, workflow DAG tracking, and observability via router.note().
 
 from __future__ import annotations
 
+import json
 import os
 from collections import defaultdict, deque
 from pathlib import Path
@@ -275,14 +276,13 @@ async def run_tech_lead(
         provider=ai_provider,
         cwd=repo_path,
         max_turns=max_turns,
-        allowed_tools=[Tool.READ, Tool.WRITE, Tool.GLOB, Tool.GREP],
+        allowed_tools=[Tool.READ, Tool.GLOB, Tool.GREP],
         permission_mode=permission_mode or None,
     ))
 
     system_prompt, task_prompt = tech_lead_prompts(
         prd_path=paths["prd"],
         architecture_path=paths["architecture"],
-        review_path=paths["review"],
         revision_number=revision_number,
     )
     response = await ai.run(
@@ -294,8 +294,13 @@ async def run_tech_lead(
     if response.parsed is None:
         raise RuntimeError("Tech lead failed to produce a valid review")
 
+    review = response.parsed.model_dump()
+    review_json_path = os.path.join(base, "plan", "review.json")
+    with open(review_json_path, "w") as f:
+        json.dump(review, f, indent=2, default=str)
+
     router.note("Tech Lead complete", tags=["tech_lead", "complete"])
-    return response.parsed.model_dump()
+    return review
 
 
 @router.reasoner()

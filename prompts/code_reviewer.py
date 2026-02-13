@@ -40,11 +40,6 @@ Nice-to-have improvements:
 - Non-blocking issues go into `debt_items` but don't block approval
 - Be strict but fair — don't block on style or suggestions
 
-## Artifact Output
-
-Write blocking issues to:
-`<worktree>/.artifacts/coding-loop/<iteration_id>/review-issues.md`
-
 ## Tools Available
 
 You have READ-ONLY access:
@@ -87,9 +82,6 @@ def code_reviewer_task_prompt(
 
     # Project context
     if project_context:
-        arch_summary = project_context.get("architecture_summary", "")
-        if arch_summary:
-            sections.append(f"\n## Architecture Summary\n{arch_summary}")
         prd_path = project_context.get("prd_path", "")
         arch_path = project_context.get("architecture_path", "")
         if prd_path or arch_path:
@@ -108,12 +100,6 @@ def code_reviewer_task_prompt(
 
     sections.append(f"\n## Working Directory\n`{worktree_path}`")
 
-    artifact_dir = f"{worktree_path}/.artifacts/coding-loop/{iteration_id}"
-    sections.append(f"\n## Artifact Directory\n`{artifact_dir}`")
-    sections.append(
-        f"Write blocking review issues to: `{artifact_dir}/review-issues.md`"
-    )
-
     sections.append(
         "\n## Your Task\n"
         "1. Read ALL changed files carefully.\n"
@@ -121,8 +107,7 @@ def code_reviewer_task_prompt(
         "3. Look for security issues, crashes, data loss, wrong logic.\n"
         "4. Classify issues by severity (BLOCKING, SHOULD_FIX, SUGGESTION).\n"
         "5. Report: approved (bool), blocking (bool), summary, and debt_items.\n"
-        "6. Only set blocking=true for security/crash/data-loss/wrong-algorithm.\n"
-        "7. Create the artifact directory if needed before writing."
+        "6. Only set blocking=true for security/crash/data-loss/wrong-algorithm."
     )
 
     return "\n".join(sections)

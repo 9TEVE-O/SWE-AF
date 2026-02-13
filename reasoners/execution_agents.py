@@ -943,7 +943,7 @@ async def run_qa(
 ) -> dict:
     """Review and augment tests, then run the test suite.
 
-    Returns a QAResult dict with passed, summary, failures_file.
+    Returns a QAResult dict with passed, summary, test_failures, coverage_gaps.
     """
     project_context = project_context or {}
     issue_name = issue.get("name", "?")
@@ -1093,7 +1093,7 @@ async def run_qa_synthesizer(
 ) -> dict:
     """Merge QA and review feedback, decide fix/approve/block.
 
-    Returns a QASynthesisResult dict with action, summary, feedback_file.
+    Returns a QASynthesisResult dict with action, summary, stuck.
     """
     issue_summary = issue_summary or {}
     _issue_name = issue_summary.get("name", "unknown")

@@ -46,15 +46,10 @@ Good: "Fix `test_parse_empty` in tests/test_parser.py — the parser returns \
 None for empty input but should return an empty list. Update parse() in \
 src/parser.py:42 to return [] instead of None."
 
-## Artifact Output
-
-Write merged feedback to:
-`<worktree>/.artifacts/coding-loop/<iteration_id>/feedback.md`
-
 ## Tools Available
 
-You have WRITE access only (to create the feedback file).
-You do NOT need to read the codebase — the QA and reviewer results are your input.\
+You do NOT need to read or write files — the QA and reviewer results are your input.
+Return your decision and feedback in the structured output schema.\
 """
 
 
@@ -69,8 +64,8 @@ def qa_synthesizer_task_prompt(
     """Build the task prompt for the QA synthesizer agent.
 
     Args:
-        qa_result: QAResult dict (passed, summary, failures_file).
-        review_result: CodeReviewResult dict (approved, summary, issues_file, debt_items).
+        qa_result: QAResult dict (passed, summary, test_failures, coverage_gaps).
+        review_result: CodeReviewResult dict (approved, summary, blocking, debt_items).
         iteration_history: List of dicts summarizing previous iterations.
         iteration_id: UUID for this iteration's artifact tracking.
         worktree_path: Absolute path to the git worktree.
@@ -93,18 +88,21 @@ def qa_synthesizer_task_prompt(
     sections.append("\n## QA Results")
     sections.append(f"- **Tests passed**: {qa_result.get('passed', False)}")
     sections.append(f"- **Summary**: {qa_result.get('summary', '(none)')}")
-    failures_file = qa_result.get("failures_file", "")
-    if failures_file:
-        sections.append(f"- **Detailed failures**: `{failures_file}`")
+    test_failures = qa_result.get("test_failures", [])
+    if test_failures:
+        sections.append("- **Test Failures**:")
+        for f in test_failures:
+            sections.append(f"  - `{f.get('test_name', '?')}` in `{f.get('file', '?')}`: {f.get('error', '?')}")
+    coverage_gaps = qa_result.get("coverage_gaps", [])
+    if coverage_gaps:
+        sections.append("- **Coverage Gaps** (ACs without tests):")
+        sections.extend(f"  - {g}" for g in coverage_gaps)
 
     # Code review results
     sections.append("\n## Code Review Results")
     sections.append(f"- **Approved**: {review_result.get('approved', False)}")
     sections.append(f"- **Blocking issues**: {review_result.get('blocking', False)}")
     sections.append(f"- **Summary**: {review_result.get('summary', '(none)')}")
-    issues_file = review_result.get("issues_file", "")
-    if issues_file:
-        sections.append(f"- **Detailed issues**: `{issues_file}`")
     debt = review_result.get("debt_items", [])
     if debt:
         sections.append("- **Debt items**:")
@@ -123,23 +121,13 @@ def qa_synthesizer_task_prompt(
                 f"summary={entry.get('summary', '?')}"
             )
 
-    # Artifact output
-    artifact_dir = f"{worktree_path}/.artifacts/coding-loop/{iteration_id}" if worktree_path else ""
-    if artifact_dir:
-        sections.append(f"\n## Artifact Directory\n`{artifact_dir}`")
-        sections.append(
-            f"Write merged feedback to: `{artifact_dir}/feedback.md`"
-        )
-
     sections.append(
         "\n## Your Task\n"
         "1. Analyze the QA results and code review results.\n"
         "2. Check the iteration history for stuck patterns.\n"
         "3. Decide: APPROVE, FIX, or BLOCK.\n"
-        "4. If FIX: write concise, actionable feedback for the coder.\n"
-        "5. If BLOCK: explain why this cannot be completed.\n"
-        "6. Write the feedback file to the artifact directory.\n"
-        "7. Create the artifact directory if needed before writing."
+        "4. If FIX: write concise, actionable feedback for the coder in your summary.\n"
+        "5. If BLOCK: explain why this cannot be completed."
     )
 
     return "\n".join(sections)

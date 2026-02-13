@@ -1,6 +1,6 @@
 # SWE AgentNode
 
-Autonomous SWE agent node for [AgentField](https://agentfield.ai). Production-grade software engineering, not vibe coding. One API call decomposes your goal into a dependency-ordered plan and deploys hundreds of autonomous coding agents — each with full tool use — that architect, code, test, review, and verify in parallel. The output is tested, reviewed, integration-verified code with a debt register for anything that was compromised.
+Production-grade software engineering, not vibe coding. One API call deploys hundreds of autonomous coding agents that architect, code, test, review, and verify in parallel — and delivers tested, reviewed, integration-verified code with a debt register for anything compromised.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
@@ -8,9 +8,13 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -d '{"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}'
 ```
 
-## The problem
+**What happens:**
 
-AI coding agents can write code. But production software requires architecture review, dependency-ordered execution, test coverage, code review, integration testing, and verification against acceptance criteria — across dozens or hundreds of issues that must compose correctly. That's not a single-session problem. AgentNode turns coding agents into a coordinated engineering org that delivers the whole thing autonomously.
+- Architecture designed and peer-reviewed before any code is written
+- Issues decomposed, dependency-ordered, and executed in parallel across isolated worktrees
+- Every issue coded, tested, and reviewed independently — failures loop back up to 5 times
+- Integration tested after each merge tier, verified against original acceptance criteria
+- Anything relaxed, skipped, or compromised is tracked in a **debt register**
 
 ```mermaid
 flowchart TB
@@ -55,39 +59,15 @@ flowchart TB
     VF -->|pass| DONE[Completed repo + debt register]
 ```
 
-> Each box in the diagram is an independent agent instance — a full coding agent with tool use, file system access, and git operations. A typical build deploys 400-500+ agent instances across parallel worktrees. Tested up to 10,000.
+> Every box is an independent agent instance with full tool use, file system access, and git operations. A typical build deploys **400-500+ agent instances** across parallel worktrees. Tested up to 10,000.
 
-## What you get
+## How it works
 
-- Architecture designed and reviewed before any code is written
-- Issues decomposed with dependency ordering and parallel execution
-- Every issue coded, tested, and reviewed independently in isolated worktrees
-- Integration tested after each merge tier
-- Verified against the original acceptance criteria
-- Debt register for anything that was relaxed, skipped, or compromised
+Three nested self-correction loops:
 
-## Why the output is production quality
-
-Three nested self-correction loops ensure the bar is met, not just attempted:
-
-**Inner** — Coder → QA → Reviewer → Synthesizer. Tests fail? Feed the errors back to the coder. Loops up to 5 times.
-
-**Middle** — Issue Advisor. Coding loop exhausted? Inspect the worktree, read every attempt, and decide: change approach, relax requirements (recorded as debt), split into sub-issues, accept with tracked gaps, or escalate.
-
-**Outer** — Replanner. Issue truly stuck? Rewrite remaining issues, reduce scope, or route around the failure. The execution plan reshapes itself at runtime.
-
-Every compromise is recorded. The final output includes a **debt register** — what was relaxed, what was skipped, and why.
-
-## Runs anywhere
-
-Stateless nodes register with the [AgentField](https://agentfield.ai) control plane and wait for work. Run on a laptop, a container, or a Lambda. Scale by adding nodes. All state is checkpointed — crash, restart, call `resume_build`, pick up where you left off.
-
-```mermaid
-flowchart LR
-    UI[Your UI] & CI[CI/CD] & WH[Webhooks] --> CP[AgentField Control Plane]
-    CP --> N1[Node] & N2[Node] & N3[Node]
-    N1 & N2 & N3 --> LLM[Claude / Codex]
-```
+**Inner** — Coder → QA → Reviewer → Synthesizer. Tests fail? Feed errors back. Loops up to 5×.
+**Middle** — Issue Advisor. Loop exhausted? Change approach, split, relax requirements (recorded as debt), or escalate.
+**Outer** — Replanner. Issue stuck? Rewrite remaining issues, reduce scope, route around the failure. The plan reshapes itself at runtime.
 
 ## Quick start
 
@@ -97,11 +77,14 @@ af                 # control plane on :8080
 python3 main.py    # registers "swe-planner" node
 ```
 
-## API
+Stateless nodes register with the [AgentField](https://agentfield.ai) control plane. Run on a laptop, container, or Lambda. Scale by adding nodes. Crash-safe — call `resume_build` to pick up where you left off.
 
-Async endpoints via the control plane. Returns `execution_id` immediately.
+<details>
+<summary><strong>API Reference</strong></summary>
 
-### Core
+### Core endpoints
+
+Async via the control plane. Returns `execution_id` immediately. All with `-H "Content-Type: application/json"`.
 
 ```bash
 # Full pipeline: plan → execute → verify
@@ -121,11 +104,7 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.resume_build
   -d '{"repo_path": "...", "artifacts_dir": ".artifacts"}'
 ```
 
-All with `-H "Content-Type: application/json"`.
-
 ### Every agent is an endpoint
-
-Use individual agents as building blocks in your own systems.
 
 `POST /api/v1/execute/async/swe-planner.<agent>`
 
@@ -154,9 +133,12 @@ curl http://localhost:8080/api/v1/execute/status/<execution_id>
 curl http://localhost:8080/api/v1/execute/notes/<execution_id>   # live progress
 ```
 
-## Config
+</details>
 
-Pass `config` to `build` or `execute`. All optional.
+<details>
+<summary><strong>Configuration</strong></summary>
+
+Pass `config` to `build` or `execute`. All optional. Full schema: [`execution/schemas.py`](execution/schemas.py)
 
 | Key | Default | |
 |-----|---------|---|
@@ -170,11 +152,9 @@ Pass `config` to `build` or `execute`. All optional.
 | `coder_model` | `"sonnet"` | Model for coding |
 | `agent_max_turns` | `150` | Tool-use turns per agent |
 
-Full schema: [`execution/schemas.py`](execution/schemas.py)
-
 ### Model configuration
 
-Instead of setting 16 individual `*_model` fields, use **presets** and **role groups** for layered control.
+Use **presets** and **role groups** instead of setting 16 individual `*_model` fields.
 
 #### Presets
 
@@ -227,7 +207,10 @@ curl -X POST .../swe-planner.build \
 
 Presets and groups are the recommended approach. Individual `*_model` fields are available for fine-tuning.
 
-## Artifacts
+</details>
+
+<details>
+<summary><strong>Artifacts</strong></summary>
 
 ```
 .artifacts/
@@ -235,6 +218,8 @@ Presets and groups are the recommended approach. Individual `*_model` fields are
 ├── execution/      # checkpoint, per-issue iterations, agent logs
 └── verification/   # acceptance criteria results
 ```
+
+</details>
 
 ## Requirements
 
