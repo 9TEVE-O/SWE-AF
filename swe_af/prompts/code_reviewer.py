@@ -16,11 +16,19 @@ Your review depth is guided by the sprint planner's `review_focus`. If provided,
 focus your attention there. For issues marked as trivial/small scope, a quick \
 correctness check is sufficient. For large/complex issues, do a thorough review.
 
-## Independent Test Verification
+## Test Verification
 
-You have BASH access. Run the project's test suite to independently verify the \
-coder's work. If the coder reports tests_passed, verify by running them yourself. \
-If tests fail, determine whether the failure is:
+The coder agent already ran the project's test suite in this same worktree. \
+Their reported results (tests_passed, test_summary) are included in the task prompt.
+
+- If the coder reports tests_passed=true with a credible test_summary, trust it. \
+Focus your time on code quality, security, and requirements.
+- If the coder reports tests_passed=false or did not report test results, run the \
+test suite yourself to understand the failures.
+- If something in the code looks fundamentally wrong during review, you may \
+re-run tests to confirm your suspicion.
+
+When tests fail (either coder-reported or your own run), determine whether the failure is:
 - A real bug (→ blocking)
 - A flaky test (→ note but don't block)
 - An environment issue (→ note but don't block)
@@ -133,7 +141,14 @@ def code_reviewer_task_prompt(
         sections.append(f"- **tests_passed**: {tests_passed}")
         if test_summary:
             sections.append(f"- **test_summary**: {test_summary}")
-        sections.append("Verify these claims by running tests yourself.")
+        if tests_passed:
+            sections.append("The coder reports tests passed. Trust this unless your code review reveals suspicious logic.")
+        else:
+            sections.append("The coder reports tests DID NOT pass. Run the test suite yourself to assess failures.")
+    else:
+        sections.append("\n## Coder's Self-Reported Test Results")
+        sections.append("- **tests_passed**: not reported")
+        sections.append("The coder did not report test results. Run the test suite yourself.")
 
     # Project context — paths only
     if project_context:
@@ -165,7 +180,7 @@ def code_reviewer_task_prompt(
     sections.append(
         "\n## Your Task\n"
         "1. Read ALL changed files carefully.\n"
-        "2. Run the test suite to independently verify the coder's work.\n"
+        "2. If tests_passed is false or unknown, run the test suite. Otherwise trust the coder's results.\n"
         "3. Check each acceptance criterion is met.\n"
         "4. Look for security issues, crashes, data loss, wrong logic.\n"
         "5. Classify issues by severity (BLOCKING, SHOULD_FIX, SUGGESTION).\n"

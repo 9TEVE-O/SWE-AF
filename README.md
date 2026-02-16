@@ -2,20 +2,25 @@
 
 # SWE-AF
 
-### Autonomous Software Engineering Team Built on AgentField
+### Autonomous Engineering Team Runtime Built on AgentField
 
-[![Public Beta](https://img.shields.io/badge/status-public%20beta-0ea5e9?style=for-the-badge)](https://github.com/Agent-Field/af-swe-claude)
+**Pronounced:** _"swee-AF"_ (one word)
+
+[![Public Beta](https://img.shields.io/badge/status-public%20beta-0ea5e9?style=for-the-badge)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/github/license/Agent-Field/af-swe-claude?style=for-the-badge)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/Agent-Field/af-swe-claude/ci.yml?branch=main&style=for-the-badge&label=tests)](https://github.com/Agent-Field/af-swe-claude/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-16a34a?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-make%20check-blue?style=for-the-badge)](.github/workflows/ci.yml)
 [![Built with AgentField](https://img.shields.io/badge/Built%20with-AgentField-0A66C2?style=for-the-badge)](https://github.com/Agent-Field/agentfield)
-[![WorldSpace Community Developer](https://img.shields.io/badge/WorldSpace-Community%20Developer-111827?style=for-the-badge)](#)
+![WorldSpace Community Developer](https://img.shields.io/badge/WorldSpace-Community%20Developer-111827?style=for-the-badge)
 
-One API call spins up a full engineering team: plan, parallelize, code, test, review, merge, and verify.
+One API call spins up a full autonomous engineering team that can scope, build, adapt, and ship complex software end to end.
+
+SWE-AF is a first step toward autonomous software engineering factories, scaling from simple goals to hard multi-issue programs with hundreds to thousands of agent invocations.
 
 <p>
   <a href="#quick-start">Quick Start</a> •
   <a href="#why-swe-af">Why SWE-AF</a> •
+  <a href="#adaptive-factory-control">Factory Control</a> •
   <a href="#benchmark-snapshot">Benchmark</a> •
   <a href="#api-reference">API</a> •
   <a href="docs/ARCHITECTURE.md">Architecture Doc</a>
@@ -25,14 +30,27 @@ One API call spins up a full engineering team: plan, parallelize, code, test, re
 
 ## Why SWE-AF
 
-Single coding agents are useful, but they are still one context window and one execution thread.
-SWE-AF orchestrates many specialized agents into a coordinated engineering system:
+Most agent frameworks are harnesses around a single coder loop. SWE-AF is a software engineering factory built from coordinated harnesses.
 
-- Multi-role execution: PM, Architect, Tech Lead, Coder, QA, Reviewer, Merger, Verifier
-- DAG-based parallelism: independent issues run concurrently in isolated worktrees
-- Three self-correction loops: retry, adapt, and replan when failures block progress
-- Transparent debt register: every compromise is tracked instead of silently dropped
-- Crash recovery: checkpointed builds can continue with `resume_build`
+- Hardness-aware execution: easy issues pass through quickly, while hard issues trigger deeper adaptation and DAG-level replanning instead of blind retries.
+- Factory architecture: planning, execution, and governance agents run as a coordinated control stack.
+- Continual learning (optional): with `enable_learning=true`, conventions and failure patterns discovered early are injected into downstream issues.
+- Agent-scale parallelism: dependency-level scheduling + isolated git worktrees allow large fan-out without branch collisions.
+- Fleet-scale orchestration with AgentField: many SWE-AF nodes can run continuously in parallel, driving thousands of agent invocations across concurrent builds.
+- Explicit compromise tracking: when scope is relaxed, debt is typed, severity-rated, and propagated.
+- Long-run reliability: checkpointed execution supports `resume_build` after crashes or interruptions.
+
+## Adaptive Factory Control
+
+SWE-AF uses three nested control loops to adapt to task difficulty in real time:
+
+| Loop        | Scope         | Trigger              | Action                                                                             |
+| ----------- | ------------- | -------------------- | ---------------------------------------------------------------------------------- |
+| Inner loop  | Single issue  | QA/review fails      | Coder retries with feedback                                                        |
+| Middle loop | Single issue  | Inner loop exhausted | `run_issue_advisor` retries with a new approach, splits work, or accepts with debt |
+| Outer loop  | Remaining DAG | Escalated failures   | `run_replanner` restructures remaining issues and dependencies                     |
+
+This is the core factory-control behavior: control agents supervise worker agents and continuously reshape the plan as reality changes.
 
 ## Quick Start
 
@@ -66,6 +84,14 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -d '{"input": {"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}}'
 ```
 
+Enable continual learning for harder, longer builds:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"goal": "Refactor and harden auth + billing flows", "repo_path": "/path/to/repo", "enable_learning": true, "config": {"preset": "fast"}}}'
+```
+
 ## What Happens In One Build
 
 - Architecture is generated and reviewed before coding starts
@@ -79,20 +105,20 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   <img src="assets/archi.png" alt="SWE-AF architecture" width="100%" />
 </p>
 
-> Typical runs can involve 400-500+ agent instances across planning, execution, QA, and verification.
+> Typical runs spin up 400-500+ agent instances across planning, execution, QA, and verification. For larger DAGs and repeated adaptation/replanning cycles, SWE-AF can scale into the high hundreds to thousands of agent invocations in a single build.
 
 ## Benchmark Snapshot
 
 **95/100 with haiku**: SWE-AF (haiku, turbo preset) outscored Claude Code sonnet (73), Codex (62), and Claude Code haiku (59) on the same prompt.
 
-| Dimension | SWE-AF (haiku) | CC Sonnet | Codex | CC Haiku |
-| --- | --- | --- | --- | --- |
-| Functional (30) | **30** | **30** | **30** | **30** |
-| Structure (20) | **20** | 10 | 10 | 10 |
-| Hygiene (20) | **20** | 16 | 10 | 7 |
-| Git (15) | **15** | 2 | 2 | 2 |
-| Quality (15) | 10 | **15** | 10 | 10 |
-| Total | **95** | **73** | **62** | **59** |
+| Dimension       | SWE-AF (haiku) | CC Sonnet | Codex  | CC Haiku |
+| --------------- | -------------- | --------- | ------ | -------- |
+| Functional (30) | **30**         | **30**    | **30** | **30**   |
+| Structure (20)  | **20**         | 10        | 10     | 10       |
+| Hygiene (20)    | **20**         | 16        | 10     | 7        |
+| Git (15)        | **15**         | 2         | 2      | 2        |
+| Quality (15)    | 10             | **15**    | 10     | 10       |
+| Total           | **95**         | **73**    | **62** | **59**   |
 
 <details>
 <summary><strong>Full benchmark details and reproduction</strong></summary>
@@ -105,13 +131,13 @@ Same prompt, four agents. SWE-AF used only haiku (turbo preset) across 400+ agen
 
 ### Scoring framework
 
-| Dimension | Points | What it measures |
-| --- | --- | --- |
-| Functional | 30 | CLI behavior and passing tests |
-| Structure | 20 | Modular source layout and test organization |
-| Hygiene | 20 | `.gitignore`, clean status, no junk artifacts |
-| Git | 15 | Commit discipline and message quality |
-| Quality | 15 | Error handling, package metadata, README quality |
+| Dimension  | Points | What it measures                                 |
+| ---------- | ------ | ------------------------------------------------ |
+| Functional | 30     | CLI behavior and passing tests                   |
+| Structure  | 20     | Modular source layout and test organization      |
+| Hygiene    | 20     | `.gitignore`, clean status, no junk artifacts    |
+| Git        | 15     | Commit discipline and message quality            |
+| Quality    | 15     | Error handling, package metadata, README quality |
 
 ### Reproduction
 
@@ -211,50 +237,51 @@ Every specialist is also callable directly:
 
 `POST /api/v1/execute/async/swe-planner.<agent>`
 
-| Agent | In -> Out |
-| --- | --- |
-| `run_product_manager` | goal -> PRD |
-| `run_architect` | PRD -> architecture |
-| `run_tech_lead` | architecture -> review |
-| `run_sprint_planner` | architecture -> issue DAG |
-| `run_issue_writer` | issue spec -> detailed issue |
-| `run_coder` | issue + worktree -> code + tests + commit |
-| `run_qa` | worktree -> test results |
-| `run_code_reviewer` | worktree -> quality/security review |
-| `run_qa_synthesizer` | QA + review -> FIX / APPROVE / BLOCK |
-| `run_issue_advisor` | failure context -> adapt / split / accept / escalate |
-| `run_replanner` | build state + failures -> restructured plan |
-| `run_merger` | branches -> merged output |
-| `run_integration_tester` | merged repo -> integration results |
-| `run_verifier` | repo + PRD -> acceptance pass/fail |
-| `generate_fix_issues` | failed criteria -> targeted fix issues |
-| `run_github_pr` | branch -> push + draft PR |
+| Agent                    | In -> Out                                            |
+| ------------------------ | ---------------------------------------------------- |
+| `run_product_manager`    | goal -> PRD                                          |
+| `run_architect`          | PRD -> architecture                                  |
+| `run_tech_lead`          | architecture -> review                               |
+| `run_sprint_planner`     | architecture -> issue DAG                            |
+| `run_issue_writer`       | issue spec -> detailed issue                         |
+| `run_coder`              | issue + worktree -> code + tests + commit            |
+| `run_qa`                 | worktree -> test results                             |
+| `run_code_reviewer`      | worktree -> quality/security review                  |
+| `run_qa_synthesizer`     | QA + review -> FIX / APPROVE / BLOCK                 |
+| `run_issue_advisor`      | failure context -> adapt / split / accept / escalate |
+| `run_replanner`          | build state + failures -> restructured plan          |
+| `run_merger`             | branches -> merged output                            |
+| `run_integration_tester` | merged repo -> integration results                   |
+| `run_verifier`           | repo + PRD -> acceptance pass/fail                   |
+| `generate_fix_issues`    | failed criteria -> targeted fix issues               |
+| `run_github_pr`          | branch -> push + draft PR                            |
 
 ## Configuration
 
 Pass `config` to `build` or `execute`. Full schema: [`swe_af/execution/schemas.py`](swe_af/execution/schemas.py)
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `max_coding_iterations` | `5` | Inner-loop retry budget |
-| `max_advisor_invocations` | `2` | Middle-loop advisor budget |
-| `max_replans` | `2` | Build-level replanning budget |
-| `enable_issue_advisor` | `true` | Enable issue adaptation |
-| `enable_replanning` | `true` | Enable global replanning |
-| `agent_timeout_seconds` | `2700` | Per-agent timeout |
-| `ai_provider` | `"claude"` | `claude` or `codex` |
-| `coder_model` | `"sonnet"` | Coding model |
-| `agent_max_turns` | `150` | Tool-use turn budget |
+| Key                       | Default    | Description                                           |
+| ------------------------- | ---------- | ----------------------------------------------------- |
+| `max_coding_iterations`   | `5`        | Inner-loop retry budget                               |
+| `max_advisor_invocations` | `2`        | Middle-loop advisor budget                            |
+| `max_replans`             | `2`        | Build-level replanning budget                         |
+| `enable_issue_advisor`    | `true`     | Enable issue adaptation                               |
+| `enable_replanning`       | `true`     | Enable global replanning                              |
+| `enable_learning`         | `false`    | Enable cross-issue shared memory (continual learning) |
+| `agent_timeout_seconds`   | `2700`     | Per-agent timeout                                     |
+| `ai_provider`             | `"claude"` | `claude` or `codex`                                   |
+| `coder_model`             | `"sonnet"` | Coding model                                          |
+| `agent_max_turns`         | `150`      | Tool-use turn budget                                  |
 
 ### Presets
 
-| Preset | Planning | Coding | Orchestration | Lightweight | Use case |
-| --- | --- | --- | --- | --- | --- |
-| `turbo` | haiku | haiku | haiku | haiku | Fastest turnaround |
-| `fast` | sonnet | sonnet | haiku | haiku | Cost-efficient quality |
-| `balanced` | sonnet | sonnet | sonnet | haiku | Default profile |
-| `thorough` | sonnet | sonnet | sonnet | sonnet | Uniform quality |
-| `quality` | opus | opus | sonnet | haiku | Maximum planning/coding quality |
+| Preset     | Planning | Coding | Orchestration | Lightweight | Use case                        |
+| ---------- | -------- | ------ | ------------- | ----------- | ------------------------------- |
+| `turbo`    | haiku    | haiku  | haiku         | haiku       | Fastest turnaround              |
+| `fast`     | sonnet   | sonnet | haiku         | haiku       | Cost-efficient quality          |
+| `balanced` | sonnet   | sonnet | sonnet        | haiku       | Default profile                 |
+| `thorough` | sonnet   | sonnet | sonnet        | sonnet      | Uniform quality                 |
+| `quality`  | opus     | opus   | sonnet        | haiku       | Maximum planning/coding quality |
 
 ### Resolution order
 
@@ -288,4 +315,4 @@ make clean-examples
 
 ---
 
-SWE-AF is built on [AgentField](https://github.com/Agent-Field/agentfield) to move from single-agent coding toward autonomous engineering teams.
+SWE-AF is built on [AgentField](https://github.com/Agent-Field/agentfield) as a first step from single-agent harnesses to autonomous software engineering factories.

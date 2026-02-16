@@ -1,6 +1,6 @@
 # Architecture
 
-AgentNode is an AgentField node that exposes a set of reasoner endpoints for autonomous software delivery.
+SWE-AF is an AgentField node that exposes reasoner endpoints for autonomous software delivery.
 
 ## Runtime model
 

@@ -24,16 +24,12 @@ RUN git config --global user.name "SWE Agent" && \
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv
 
-# Install AgentField SDK from monorepo
-COPY agentfield/sdk/python /tmp/agentfield-sdk
-RUN uv pip install --system /tmp/agentfield-sdk && rm -rf /tmp/agentfield-sdk
-
 # Install project dependencies
-COPY int-agentfield-examples/af-swe/requirements-docker.txt /app/requirements.txt
+COPY requirements-docker.txt /app/requirements.txt
 RUN uv pip install --system -r /app/requirements.txt
 
 # Copy application code
-COPY int-agentfield-examples/af-swe/ /app/
+COPY . /app/
 
 EXPOSE 8003
 

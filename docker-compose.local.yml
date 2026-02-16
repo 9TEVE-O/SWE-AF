@@ -10,8 +10,8 @@
 services:
   swe-agent:
     build:
-      context: ../..
-      dockerfile: int-agentfield-examples/af-swe/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     environment:
       - AGENTFIELD_SERVER=http://host.docker.internal:8080
       - NODE_ID=swe-planner

@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for contributing to AgentNode.
+Thanks for contributing to SWE-AF.
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - AgentField control plane (`af`)
 - Access to an AI provider used by your run (`claude` or `codex`)
 
@@ -13,7 +13,8 @@ Thanks for contributing to AgentNode.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
 ## Development workflow
