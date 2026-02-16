@@ -126,10 +126,10 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
   -d '{"input": {"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}}'
 
-# With open-source models (DeepSeek, Qwen, Llama via OpenRouter)
+# With open-source models (all agents use DeepSeek)
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
-  -d '{"input": {"goal": "Add JWT auth", "repo_path": "/path/to/repo", "config": {"ai_provider": "opencode", "coder_model": "deepseek/deepseek-chat"}}}'
+  -d '{"input": {"goal": "Add JWT auth", "repo_path": "/path/to/repo", "config": {"ai_provider": "opencode", "model": "deepseek/deepseek-chat", "preset": "fast"}}}'
 
 # Enable continual learning for harder builds
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
@@ -227,7 +227,7 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
 # With open-source models (set OPENROUTER_API_KEY in .env)
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
-  -d '{"input": {"goal": "Add JWT auth", "repo_path": "/workspaces/my-repo", "config": {"ai_provider": "opencode", "coder_model": "deepseek/deepseek-chat"}}}'
+  -d '{"input": {"goal": "Add JWT auth", "repo_path": "/workspaces/my-repo", "config": {"ai_provider": "opencode", "model": "deepseek/deepseek-chat", "preset": "fast"}}}'
 ```
 
 Scale workers:
