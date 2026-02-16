@@ -27,7 +27,7 @@
 </div>
 
 One API call spins up a full autonomous engineering team that can scope, build, adapt, and ship complex software end to end.
-SWE-AF is a first step toward autonomous software engineering factories, scaling from simple goals to hard multi-issue programs with hundreds to thousands of agent invocations.
+SWE-AF is a first step toward **autonomous software engineering factories**, scaling from simple goals to hard multi-issue programs with hundreds to thousands of agent invocations.
 
 <p align="center">
   <img src="assets/banner.jpg" alt="SWE-AF autonomous engineering fleet banner" width="100%" />
