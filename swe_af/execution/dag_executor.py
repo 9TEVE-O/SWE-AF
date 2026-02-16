@@ -1058,7 +1058,7 @@ async def run_dag(
         elif action == "set":
             _shared_memory[key] = value
 
-    memory_fn = _memory_fn if call_fn is not None else None
+    memory_fn = _memory_fn if (call_fn is not None and config.enable_learning) else None
 
     issue_by_name = {i["name"]: i for i in dag_state.all_issues}
 

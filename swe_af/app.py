@@ -52,6 +52,7 @@ async def build(
     model: str = "",
     max_turns: int = 0,
     permission_mode: str = "",
+    enable_learning: bool = False,
 ) -> dict:
     """End-to-end: plan → execute → verify → optional fix cycle.
 
@@ -91,6 +92,8 @@ async def build(
         cfg.ai_provider = ai_provider
     if permission_mode:
         cfg.permission_mode = permission_mode
+    if enable_learning:
+        cfg.enable_learning = True
     if max_turns > 0:
         cfg.agent_max_turns = max_turns
     if model:

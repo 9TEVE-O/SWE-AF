@@ -468,6 +468,8 @@ class BuildConfig(BaseModel):
     issue_advisor_model: str = "sonnet"
     max_advisor_invocations: int = 2
     enable_issue_advisor: bool = True
+    # Continual learning
+    enable_learning: bool = False  # Cross-issue shared memory (conventions, failure patterns, bug patterns)
 
     def resolved_models(self) -> dict[str, str]:
         """Resolve all model fields using layered precedence.
@@ -512,6 +514,7 @@ class BuildConfig(BaseModel):
             "agent_timeout_seconds": self.agent_timeout_seconds,
             "max_advisor_invocations": self.max_advisor_invocations,
             "enable_issue_advisor": self.enable_issue_advisor,
+            "enable_learning": self.enable_learning,
         }
 
 
@@ -575,6 +578,8 @@ class ExecutionConfig(BaseModel):
     issue_advisor_model: str = "sonnet"
     max_advisor_invocations: int = 2
     enable_issue_advisor: bool = True
+    # Continual learning
+    enable_learning: bool = False
 
     def model_post_init(self, __context: Any) -> None:
         """Apply layered model resolution after construction.
