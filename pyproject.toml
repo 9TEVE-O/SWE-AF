@@ -1,5 +1,5 @@
 [project]
-name = "agentnode"
+name = "swe-af"
 version = "0.1.0"
 description = "Autonomous SWE agent node for AgentField"
 requires-python = ">=3.11"
@@ -10,3 +10,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+
+[project.scripts]
+swe-af = "swe_af.app:main"
+
+[tool.setuptools.packages.find]
+include = ["swe_af*"]

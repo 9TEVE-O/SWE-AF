@@ -1,6 +1,6 @@
 import unittest
 
-from agent_ai.providers.codex.adapter import (
+from swe_af.agent_ai.providers.codex.adapter import (
     build_codex_command,
     normalize_schema_for_codex,
     parse_codex_jsonl,

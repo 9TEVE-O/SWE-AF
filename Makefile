@@ -6,7 +6,7 @@ test:
 	$(PYTHON) -m unittest discover -s tests -v
 
 check: test
-	$(PYTHON) -m compileall -q .
+	$(PYTHON) -m compileall -q swe_af/
 
 clean:
 	find . -path "./.git" -prune -o -path "./.venv" -prune -o -type f \( -name "*.pyc" -o -name ".DS_Store" -o -name "*.bak" \) -delete

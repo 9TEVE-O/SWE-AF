@@ -1,8 +1,8 @@
 # SWE-AF
 
-Autonomous software engineering. One API call spins up hundreds of agents that decompose, parallelize, code, test, review, and self-correct — delivering merge-ready code, not demos.
+Autonomous software engineering team built on [AgentField](https://github.com/Agent-Field/agentfield). One API call spins up hundreds of agents that decompose, parallelize, code, test, review, and self-correct. Merge-ready code, not demos.
 
-**95/100 with haiku.** The cheapest model. SWE-AF with haiku outscores Claude Code with sonnet (73), Codex (62), and Claude Code with haiku (59) on the same task. Every agent writes working code — the gap is structure, git discipline, test coverage, and repo hygiene. Architecture beats model size.
+**95/100 with haiku.** The cheapest model. SWE-AF with haiku outscores Claude Code with sonnet (73), Codex (62), and Claude Code with haiku (59) on the same task.
 
 <details>
 <summary><strong>Full benchmark details</strong></summary>
@@ -32,7 +32,7 @@ Same prompt, four agents. **SWE-AF uses only haiku** (turbo preset) across all 4
 | **Quality** (15)    | 10             | **15**    | 10     | 10       |
 | **Total**           | **95**         | **73**    | **62** | **59**   |
 
-Every agent produces working code. The gap is structure, git discipline, and repo hygiene — the things that make code shippable.
+Every agent produces working code. The gap is structure, git discipline, and repo hygiene: the things that make code shippable.
 
 ### Detailed Metrics (13 checks)
 
@@ -87,7 +87,7 @@ codex exec \
 
 Full source code from all four agents, the automated evaluation script, and agent logs are in [`examples/agent-comparison/`](examples/agent-comparison/).
 
-This benchmark used a simple prompt to make comparison fair. SWE-AF's advantage grows with task complexity — more modules to coordinate, more integration points to test, more merge conflicts to resolve.
+This benchmark used a simple prompt to make comparison fair. SWE-AF's advantage grows with task complexity: more modules to coordinate, more integration points to test, more merge conflicts to resolve.
 
 </details>
 
@@ -97,53 +97,55 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -d '{"input": {"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}}'
 ```
 
-**What happens when reasoning is cheap and coordination is instant:**
+**What happens:**
 
-- Architecture designed, then peer-reviewed by a second agent — when review costs one API call, every design gets one
-- 20 issues execute simultaneously across isolated worktrees. Inter-agent coordination is instant — no standups, no Slack threads, no waiting. Parallelism that would take a human team weeks collapses to minutes
-- Every issue gets a dedicated coder, tester, and reviewer. Staffing no human team would allocate — agents make it trivial
-- Failures self-correct up to 5 times. When exhausted, a specialist diagnoses and adapts in seconds — not a triage meeting
-- Context flows between agents at API speed. Conventions discovered in issue 1 are injected into issue 20 before its coder starts. No onboarding, no knowledge silos
-- Plans restructure themselves at runtime. Dependencies recomputed, blocked work rerouted — a replan that takes a PM a day happens in seconds
-- Every compromise tracked in a **debt register** — when hundreds of agents make decisions, accountability must be structural
+- Architecture designed and peer-reviewed before any code is written. Review costs one API call, so every design gets one
+- Issues dependency-sorted and executed in parallel across isolated worktrees. 20 agents code simultaneously. No standups, no Slack threads. Coordination is programmatic
+- Every issue gets a dedicated coder, tester, and reviewer. A single agent gives you one shot. A human team can't afford this staffing. Agents make it free
+- Failures self-correct up to N times per issue. When exhausted, a specialist agent diagnoses the failure and adapts: new approach, split, relaxed scope (tracked as debt), or escalation
+- Context flows between agents instantly. Conventions from issue 1 appear in issue 20 before its coder starts. No onboarding, no knowledge silos
+- Plans restructure at runtime when issues escalate. Dependencies recomputed, blocked work rerouted. What takes a PM a day takes agents seconds
+- Every compromise tracked in a **debt register**. Nothing silently dropped
 
 ![SWE-AF Architecture](assets/archi.png)
 
-> Every box is an independent agent instance. A typical build deploys **400-500+ agent instances** across parallel worktrees — each with full tool use, file system access, and git operations.
+> Every box is an independent agent instance. A typical build deploys **400-500+ agent instances** across parallel worktrees, each with full tool use, file system access, and git operations.
 
-## Why multi-agent beats single-agent
+## From coding agent to engineering team
 
-Reasoning is now cheap enough to run at scale. A single coding agent — no matter how capable — is still one context window, one attempt, one commit. It works like one very fast developer. But when you can spin up hundreds of agents and they coordinate at the speed of an API call — no meetings, no onboarding, no context-switching — you don't get a faster developer. You get capabilities that are structurally different from anything a human team or a single agent can do.
+Claude Code, Codex, and Devin are agent harnesses: an LLM with tools, memory, and retry logic. Capable solo developers. But still one context window, one attempt, one commit.
 
-**Self-correction that would bankrupt a human team.** Inner loop: coder → QA → reviewer, up to 5 iterations per issue. Tests fail? Errors fed back with full context. Every issue gets this — because the cost of a review cycle is one API call, not a calendar invite. Middle loop: when iterations are exhausted, an Issue Advisor diagnoses the failure — retries with a new approach, relaxes acceptance criteria (recorded as debt), splits into sub-issues, or escalates. Outer loop: when issues escalate, a Replanner restructures the entire remaining plan at runtime. Dependencies recomputed. New issues added. Blocked work removed. Three levels of self-correction, running continuously across every issue in the build. No human team would staff this.
+SWE-AF orchestrates hundreds of harnesses into an engineering team. Roles (PM, architect, coder, QA, reviewer), parallel execution across isolated worktrees, three self-correction loops, and shared memory that propagates instantly.
 
-**Parallelism with zero coordination cost.** A human team parallelizing 20 issues needs standups, Slack threads, merge conflict resolution meetings, and a project manager. Agents coordinate instantly — context is shared programmatically, not through conversation. Issues are dependency-sorted into levels. All issues in a level execute simultaneously in isolated git worktrees. File conflict detection prevents agents from clobbering each other. After each level: merge gate → integration tests → next level. A 20-issue build runs in the wall-clock time of its longest dependency chain, not the sum of its parts.
+**Self-correction at three levels.** Inner: coder + QA + reviewer loop up to 5 times per issue. A standalone harness gets one attempt. Middle: when iterations exhaust, an Issue Advisor diagnoses and adapts (new approach, split, relax criteria as debt, or escalate). Outer: a Replanner restructures the remaining plan at runtime. Dependencies recomputed, blocked work removed.
 
-**Shared memory, not shared meetings.** Agents don't just run in parallel — they learn from each other. Codebase conventions discovered by early issues are injected into later ones. Failure patterns accumulate so downstream coders avoid known traps. An interface registry tells downstream issues exactly what upstream provided. In a human team, this knowledge lives in people's heads and leaks through hallway conversations. Here, it propagates instantly and completely. The 50th agent is smarter than the 1st.
+**Parallelism with zero coordination cost.** Issues dependency-sorted into levels, executed simultaneously in isolated worktrees. File conflict detection prevents collisions. Merge, integration test, next level. A 20-issue build runs in the time of its longest dependency chain.
 
-**Transparent compromise.** Every relaxed requirement, dropped acceptance criterion, and missing feature is typed, justified, severity-rated, and tracked in a debt register. When hundreds of agents make thousands of decisions, accountability can't be informal — it has to be structural. The PR description tells you exactly what was delivered and what was not. No silent failures.
+**Shared memory, not shared meetings.** Conventions from early issues inject into later ones. Failure patterns accumulate. An interface registry tells downstream agents exactly what upstream provided. The 50th agent is smarter than the 1st.
 
-**Crash recovery.** Checkpoints at level and iteration granularity. `resume_build` picks up exactly where the build stopped. Completed work is not re-executed.
+**Transparent compromise.** Every relaxed requirement tracked in a typed, severity-rated debt register. The PR tells you exactly what shipped and what didn't.
+
+**Crash recovery.** Checkpoints at level and iteration granularity. `resume_build` picks up where the build stopped.
 
 ## How it works
 
 Three nested loops drive every build:
 
-| Loop | Scope | Budget | Trigger | Action |
-|------|-------|--------|---------|--------|
-| **Inner** | Per issue | 5 iterations | Tests fail / review rejects | Feed errors back to coder, retry |
-| **Middle** | Per issue | 2 invocations | Inner loop exhausted | Diagnose → new approach / split / relax criteria (debt) / escalate |
-| **Outer** | Per build | 2 replans | Issues escalated | Restructure remaining plan, recompute dependencies |
+| Loop       | Scope     | Budget        | Trigger                     | Action                                                             |
+| ---------- | --------- | ------------- | --------------------------- | ------------------------------------------------------------------ |
+| **Inner**  | Per issue | 5 iterations  | Tests fail / review rejects | Feed errors back to coder, retry                                   |
+| **Middle** | Per issue | 2 invocations | Inner loop exhausted        | Diagnose → new approach / split / relax criteria (debt) / escalate |
+| **Outer**  | Per build | 2 replans     | Issues escalated            | Restructure remaining plan, recompute dependencies                 |
 
 ## Quick start
 
 ```bash
 python3 -m pip install -r requirements.txt
 af                 # control plane on :8080
-python3 main.py    # registers "swe-planner" node
+python3 -m swe_af  # registers "swe-planner" node
 ```
 
-Stateless nodes register with the [AgentField](https://agentfield.ai) control plane. Run on a laptop, container, or Lambda. Crash-safe — call `resume_build` to pick up where you left off.
+Stateless nodes register with the [AgentField](https://github.com/Agent-Field/agentfield) control plane. Run on a laptop, container, or Lambda. Crash-safe: call `resume_build` to pick up where you left off.
 
 <details>
 <summary><strong>Docker</strong></summary>
@@ -276,7 +278,7 @@ curl http://localhost:8080/api/v1/executions/<execution_id>
 <details>
 <summary><strong>Configuration</strong></summary>
 
-Pass `config` to `build` or `execute`. All optional. Full schema: [`execution/schemas.py`](execution/schemas.py)
+Pass `config` to `build` or `execute`. All optional. Full schema: [`swe_af/execution/schemas.py`](swe_af/execution/schemas.py)
 
 | Key                       | Default    |                              |
 | ------------------------- | ---------- | ---------------------------- |
@@ -318,27 +320,27 @@ Use **presets** and **role groups** instead of setting 16 individual `*_model` f
 Precedence (lowest → highest): **defaults** < **preset** < **role groups** < **individual fields**
 
 ```bash
-# Preset only — opus planning+coding, sonnet orchestration, haiku lightweight
+# Preset only: opus planning+coding, sonnet orchestration, haiku lightweight
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "quality"}}}'
 
-# Group override — opus planning, everything else uses defaults
+# Group override: opus planning, everything else uses defaults
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "config": {"models": {"planning": "opus"}}}}'
 
-# Preset + group override — quality preset but cheap orchestration
+# Preset + group override: quality preset but cheap orchestration
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "quality", "models": {"orchestration": "haiku"}}}}'
 
-# Preset + individual override — balanced but architect uses opus
+# Preset + individual override: balanced but architect uses opus
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "balanced", "architect_model": "opus"}}}'
 
-# Backward compatible — individual *_model fields still work
+# Backward compatible: individual *_model fields still work
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "config": {"pm_model": "opus", "architect_model": "opus"}}}'
 
-# Top-level model= convenience — sets all 16 fields to the same value
+# Top-level model= convenience: sets all 16 fields to the same value
 curl -X POST .../swe-planner.build \
   -d '{"input": {"goal": "...", "repo_path": "...", "model": "opus"}}'
 ```
@@ -362,7 +364,7 @@ Presets and groups are the recommended approach. Individual `*_model` fields are
 ## Requirements
 
 - Python 3.11+
-- [AgentField](https://agentfield.ai) control plane
+- [AgentField](https://github.com/Agent-Field/agentfield) control plane
 - Anthropic or OpenAI API key
 
 ## Development
@@ -378,10 +380,10 @@ make clean-examples  # remove Rust build outputs in example folders
 
 ## Internals
 
-- Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Contribution guide: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 - License: [Apache-2.0](LICENSE)
 
 ---
 
-SWE-AF is a step toward autonomous software development — where AI doesn't just assist a developer, it operates as an engineering team.
+SWE-AF is a step toward autonomous software development where AI doesn't just assist a developer, it operates as an engineering team. Built on [AgentField](https://github.com/Agent-Field/agentfield).

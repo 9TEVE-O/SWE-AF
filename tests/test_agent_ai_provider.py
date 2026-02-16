@@ -1,8 +1,8 @@
 import unittest
 
-from agent_ai.client import AgentAIConfig
-from agent_ai.factory import build_provider_client
-from execution.schemas import BuildConfig, ExecutionConfig
+from swe_af.agent_ai.client import AgentAIConfig
+from swe_af.agent_ai.factory import build_provider_client
+from swe_af.execution.schemas import BuildConfig, ExecutionConfig
 
 
 class AgentAIProviderTests(unittest.TestCase):

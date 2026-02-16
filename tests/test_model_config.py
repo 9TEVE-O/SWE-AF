@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from execution.schemas import (
+from swe_af.execution.schemas import (
     ALL_MODEL_FIELDS,
     MODEL_PRESETS,
     ROLE_GROUPS,

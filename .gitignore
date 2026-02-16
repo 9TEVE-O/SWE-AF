@@ -28,6 +28,7 @@ Thumbs.db
 # Build outputs
 **/target/
 *.bak
+*.egg-info/
 
 # AgentField runtime worktrees
 .worktrees/
