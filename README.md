@@ -5,7 +5,7 @@ Production-grade software engineering, not vibe coding. One API call deploys hun
 ```bash
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
-  -d '{"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}'
+  -d '{"input": {"goal": "Add JWT auth to all API endpoints", "repo_path": "/path/to/repo"}}'
 ```
 
 **What happens:**
@@ -16,48 +16,7 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
 - Integration tested after each merge tier, verified against original acceptance criteria
 - Anything relaxed, skipped, or compromised is tracked in a **debt register**
 
-```mermaid
-flowchart TB
-    curl["POST /build<br/><i>goal + repo</i>"] --> CP[AgentField Control Plane]
-
-    CP --> PM[Product Manager] & GI[Git Init]
-    PM --> AR[Architect]
-    AR <-->|review loop| TL[Tech Lead]
-    AR --> SP[Sprint Planner]
-    SP --> IW[Issue Writers ×N]
-
-    IW --> L0
-
-    subgraph L0["Parallel execution — each issue in its own git worktree"]
-        direction LR
-        subgraph W1[issue-1]
-            C1[Coder] --> QR1[QA + Reviewer]
-            QR1 --> S1[Synthesizer]
-            S1 -.->|fix| C1
-        end
-        subgraph W2[issue-2]
-            C2[Coder] --> QR2[QA + Reviewer]
-            QR2 --> S2[Synthesizer]
-            S2 -.->|fix| C2
-        end
-        subgraph W3[issue-3]
-            C3[Coder] --> QR3[QA + Reviewer]
-            QR3 --> S3[Synthesizer]
-            S3 -.->|fix| C3
-        end
-    end
-
-    L0 -->|failure| IA[Issue Advisor — adapt, split, or accept with debt]
-    IA -.->|retry| L0
-    IA -->|escalate| RP[Replanner — restructure remaining work]
-    RP -.-> L0
-
-    L0 --> MG[Merger + Integration Tests]
-    MG --> NL[Next parallel tier...]
-    NL --> VF[Verifier]
-    VF -->|fail| FG[Fix Generator → re-execute]
-    VF -->|pass| DONE[Completed repo + debt register]
-```
+![SWE AgentNode Architecture](assets/archi.png)
 
 > Every box is an independent agent instance with full tool use, file system access, and git operations. A typical build deploys **400-500+ agent instances** across parallel worktrees. Tested up to 10,000.
 
@@ -80,6 +39,78 @@ python3 main.py    # registers "swe-planner" node
 Stateless nodes register with the [AgentField](https://agentfield.ai) control plane. Run on a laptop, container, or Lambda. Scale by adding nodes. Crash-safe — call `resume_build` to pick up where you left off.
 
 <details>
+<summary><strong>Docker</strong></summary>
+
+```bash
+# Set your API keys
+cp .env.example .env
+# Edit .env with your ANTHROPIC_API_KEY (and GH_TOKEN for draft PRs)
+
+# Start control plane + SWE agent
+docker compose up -d
+
+# Submit a build (local repo on shared volume)
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"goal": "Add JWT auth", "repo_path": "/workspaces/my-repo"}}'
+
+# Or: clone from GitHub and get a draft PR back
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"repo_url": "https://github.com/user/my-repo", "goal": "Add JWT auth"}}'
+
+# Scale to 3 replicas for parallel builds
+docker compose up --scale swe-agent=3 -d
+```
+
+All replicas share a `/workspaces` volume for repos, worktrees, and artifacts. The control plane load-balances `app.call()` across all registered nodes.
+
+**Using an existing control plane** (no Docker control plane):
+
+```bash
+# If you already have `af` running on localhost:8080
+docker compose -f docker-compose.local.yml up -d
+```
+
+This uses `host.docker.internal` to connect from the container to your host's control plane.
+
+</details>
+
+<details>
+<summary><strong>GitHub Workflow (Clone → Build → Draft PR)</strong></summary>
+
+Pass `repo_url` instead of `repo_path` to clone a GitHub repo automatically. After the build completes, a draft PR is created.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{"input": {
+    "repo_url": "https://github.com/user/my-project",
+    "goal": "Add comprehensive test coverage",
+    "config": {"preset": "quality"}
+  }}'
+```
+
+**What happens:**
+1. Repo cloned to `/workspaces/my-project`
+2. Full pipeline: plan → execute → verify
+3. Integration branch pushed to origin
+4. Draft PR created with build summary
+
+**Requirements:**
+- `GH_TOKEN` set in `.env` (GitHub personal access token with `repo` scope)
+- Remote repo must be accessible (public or token has access)
+
+**Config options:**
+| Key | Default | |
+|-----|---------|---|
+| `repo_url` | `""` | GitHub URL to clone |
+| `enable_github_pr` | `true` | Create draft PR after build |
+| `github_pr_base` | `""` | PR base branch (auto-detected from remote default) |
+
+</details>
+
+<details>
 <summary><strong>API Reference</strong></summary>
 
 ### Core endpoints
@@ -89,19 +120,19 @@ Async via the control plane. Returns `execution_id` immediately. All with `-H "C
 ```bash
 # Full pipeline: plan → execute → verify
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {}}}'
 
 # Plan only
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.plan \
-  -d '{"goal": "...", "repo_path": "..."}'
+  -d '{"input": {"goal": "...", "repo_path": "..."}}'
 
 # Execute a pre-made plan
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.execute \
-  -d '{"plan_result": { ... }, "repo_path": "..."}'
+  -d '{"input": {"plan_result": { ... }, "repo_path": "..."}}'
 
 # Resume after crash
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.resume_build \
-  -d '{"repo_path": "...", "artifacts_dir": ".artifacts"}'
+  -d '{"input": {"repo_path": "...", "artifacts_dir": ".artifacts"}}'
 ```
 
 ### Every agent is an endpoint
@@ -125,12 +156,12 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.resume_build
 | `run_integration_tester` | merged repo → integration test results |
 | `run_verifier` | repo + PRD → acceptance pass/fail |
 | `generate_fix_issues` | failed criteria → targeted fix issues |
+| `run_github_pr` | integration branch → push + draft PR |
 
 ### Monitoring
 
 ```bash
-curl http://localhost:8080/api/v1/execute/status/<execution_id>
-curl http://localhost:8080/api/v1/execute/notes/<execution_id>   # live progress
+curl http://localhost:8080/api/v1/executions/<execution_id>
 ```
 
 </details>
@@ -182,27 +213,27 @@ Precedence (lowest → highest): **defaults** < **preset** < **role groups** < *
 ```bash
 # Preset only — opus planning+coding, sonnet orchestration, haiku lightweight
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "quality"}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "quality"}}}'
 
 # Group override — opus planning, everything else uses defaults
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {"models": {"planning": "opus"}}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {"models": {"planning": "opus"}}}}'
 
 # Preset + group override — quality preset but cheap orchestration
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "quality", "models": {"orchestration": "haiku"}}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "quality", "models": {"orchestration": "haiku"}}}}'
 
 # Preset + individual override — balanced but architect uses opus
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {"preset": "balanced", "architect_model": "opus"}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {"preset": "balanced", "architect_model": "opus"}}}'
 
 # Backward compatible — individual *_model fields still work
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "config": {"pm_model": "opus", "architect_model": "opus"}}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "config": {"pm_model": "opus", "architect_model": "opus"}}}'
 
 # Top-level model= convenience — sets all 16 fields to the same value
 curl -X POST .../swe-planner.build \
-  -d '{"goal": "...", "repo_path": "...", "model": "opus"}'
+  -d '{"input": {"goal": "...", "repo_path": "...", "model": "opus"}}'
 ```
 
 Presets and groups are the recommended approach. Individual `*_model` fields are available for fine-tuning.
