@@ -424,6 +424,7 @@ class BuildConfig(BaseModel):
     # --- Model presets & groups ---
     preset: str | None = None
     models: dict[str, str] | None = None
+    model: str | None = None  # Global model override (applies to ALL roles)
 
     # Planning
     pm_model: str = "sonnet"
@@ -477,17 +478,26 @@ class BuildConfig(BaseModel):
         Returns a dict of {field_name: resolved_model} for all 16 model fields.
         Individual ``*_model`` fields only act as overrides if explicitly set by the
         caller (detected via Pydantic's ``model_fields_set``).
+
+        If `model` is set, it overrides ALL models (highest priority).
         """
         explicit = {
             f: getattr(self, f)
             for f in ALL_MODEL_FIELDS
             if f in self.model_fields_set
         }
-        return resolve_models(
+        resolved = resolve_models(
             preset=self.preset,
             models=self.models,
             explicit_fields=explicit,
         )
+
+        # Apply global model override (if set, overrides everything)
+        if self.model:
+            for field in ALL_MODEL_FIELDS:
+                resolved[field] = self.model
+
+        return resolved
 
     def to_execution_config_dict(self) -> dict:
         """Build the dict that gets passed to ``ExecutionConfig`` via ``execute()``.
@@ -553,6 +563,7 @@ class ExecutionConfig(BaseModel):
     # --- Model presets & groups ---
     preset: str | None = None
     models: dict[str, str] | None = None
+    model: str | None = None  # Global model override (applies to ALL roles)
 
     max_retries_per_issue: int = 1
     max_replans: int = 2
@@ -587,15 +598,17 @@ class ExecutionConfig(BaseModel):
         If ``preset`` or ``models`` is set, resolve and write back to the
         individual ``*_model`` fields so downstream code (dag_executor,
         coding_loop) can keep reading ``config.coder_model`` etc. unchanged.
+
+        If `model` is set, it overrides ALL models (highest priority).
         """
-        if self.preset is None and self.models is None:
+        if self.preset is None and self.models is None and self.model is None:
             return
         # Fields present on ExecutionConfig (use class-level access)
         exec_model_fields = [f for f in ALL_MODEL_FIELDS if f in type(self).model_fields]
         explicit = {
             f: getattr(self, f)
             for f in exec_model_fields
-            if f in self.model_fields_set and f not in ("preset", "models")
+            if f in self.model_fields_set and f not in ("preset", "models", "model")
         }
         resolved = resolve_models(
             preset=self.preset,
@@ -603,5 +616,11 @@ class ExecutionConfig(BaseModel):
             explicit_fields=explicit,
             field_names=exec_model_fields,
         )
+
+        # Apply global model override (if set, overrides everything)
+        if self.model:
+            for field in exec_model_fields:
+                resolved[field] = self.model
+
         for field, value in resolved.items():
             object.__setattr__(self, field, value)
