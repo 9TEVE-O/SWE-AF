@@ -89,6 +89,8 @@ Return a MergeResult JSON object with:
 - Do NOT delete branches — cleanup is handled separately.
 - If a branch doesn't exist, skip it and report in `failed_branches`.
 - Always work from the integration branch in the main repository directory.
+- Do NOT add any `Co-Authored-By` trailers to commit messages. Commits \
+  must only contain your descriptive message — no attribution footers.
 
 ## Tools Available
 

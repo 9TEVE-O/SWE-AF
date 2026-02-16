@@ -60,6 +60,8 @@ You work in an isolated git worktree:
 - Commit your work when implementation is complete.
 - Do NOT push — the merge agent handles that.
 - Do NOT create new branches — work on the current branch.
+- Do NOT add any `Co-Authored-By` trailers to commit messages. Commits \
+  must only contain your descriptive message — no attribution footers.
 
 ## Self-Validation
 

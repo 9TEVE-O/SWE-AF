@@ -17,9 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get update && apt-get install -y --no-install-recommends gh && \
     rm -rf /var/lib/apt/lists/*
 
-# Git config (agents need this for commits)
-RUN git config --global user.name "SWE Agent" && \
-    git config --global user.email "swe-agent@agentfield.ai"
+# Git identity — env vars take highest precedence and are inherited by all
+# subprocesses including Claude Code agent instances spawned by the SDK
+ENV GIT_AUTHOR_NAME="SWE-AF" \
+    GIT_AUTHOR_EMAIL="contact@agentfield.com" \
+    GIT_COMMITTER_NAME="SWE-AF" \
+    GIT_COMMITTER_EMAIL="contact@agentfield.com"
+
+RUN git config --global user.name "SWE-AF" && \
+    git config --global user.email "contact@agentfield.com"
 
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv
