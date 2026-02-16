@@ -372,9 +372,11 @@ class OpenCodeProviderClient:
             "NO_COLOR": "1",  # Disable colors
         }
 
-        # Execute OpenCode with prompt - it runs in cwd automatically
+        # Execute OpenCode with prompt in non-interactive mode
+        # CRITICAL: Set stdin=DEVNULL to prevent OpenCode from trying to open /dev/tty
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,

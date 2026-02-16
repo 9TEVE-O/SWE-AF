@@ -96,12 +96,16 @@ async def build(
         cfg.enable_learning = True
     if max_turns > 0:
         cfg.agent_max_turns = max_turns
-    if model:
-        # Convenience override: single top-level model sets all 16 fields.
-        for field in ALL_MODEL_FIELDS:
-            setattr(cfg, field, model)
 
+    # Resolve models first (applies preset logic)
     resolved = cfg.resolved_models()
+
+    # THEN apply top-level model override (if provided)
+    # This gives users a simple way to override all models at once while keeping preset behavior
+    if model:
+        # Convenience override: single top-level model overrides ALL resolved models
+        for field in ALL_MODEL_FIELDS:
+            resolved[field] = model
 
     app.note("Build starting", tags=["build", "start"])
 
