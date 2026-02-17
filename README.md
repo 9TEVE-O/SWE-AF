@@ -553,34 +553,6 @@ Fully customized:
 </details>
 
 <details>
-<summary><strong>Breaking V2 migration</strong></summary>
-
-Legacy keys are removed and rejected (`ai_provider`, `preset`, grouped model maps, `model`, and all `*_model` fields).
-
-Before:
-
-```json
-{
-  "ai_provider": "opencode",
-  "preset": "fast",
-  "model": "deepseek/deepseek-chat"
-}
-```
-
-After:
-
-```json
-{
-  "runtime": "open_code",
-  "models": {
-    "default": "deepseek/deepseek-chat"
-  }
-}
-```
-
-</details>
-
-<details>
 <summary><strong>Artifacts</strong></summary>
 
 ```text
