@@ -33,7 +33,7 @@ ENV GIT_AUTHOR_NAME="SWE-AF" \
 # HTTPS operations (clone, push, fetch) authenticate via GH_TOKEN at runtime.
 RUN git config --global user.name "SWE-AF" && \
     git config --global user.email "contact@agentfield.com" && \
-    gh auth setup-git
+    gh auth setup-git --hostname github.com --force
 
 # Install uv for fast package installation
 RUN pip install --no-cache-dir uv
