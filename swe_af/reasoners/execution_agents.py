@@ -520,6 +520,7 @@ async def run_git_init(
     permission_mode: str = "",
     ai_provider: str = "claude",
     previous_error: str | None = None,
+    build_id: str = "",
 ) -> dict:
     """Initialize git repo and create integration branch for feature work.
 
@@ -538,7 +539,7 @@ async def run_git_init(
         tags=["git_init", "start"],
     )
 
-    task_prompt = git_init_task_prompt(repo_path=repo_path, goal=goal)
+    task_prompt = git_init_task_prompt(repo_path=repo_path, goal=goal, build_id=build_id)
 
     # Build system prompt with error context if retrying
     system_prompt = GIT_INIT_SYSTEM_PROMPT
@@ -604,6 +605,7 @@ async def run_workspace_setup(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    build_id: str = "",
 ) -> dict:
     """Create git worktrees for parallel issue isolation.
 
@@ -623,6 +625,7 @@ async def run_workspace_setup(
         integration_branch=integration_branch,
         issues=issues,
         worktrees_dir=worktrees_dir,
+        build_id=build_id,
     )
 
     class WorkspaceSetupResult(BaseModel):

@@ -56,6 +56,7 @@ async def _setup_worktrees(
     node_id: str,
     config: ExecutionConfig,
     note_fn: Callable | None = None,
+    build_id: str = "",
 ) -> list[dict]:
     """Create git worktrees for parallel issue isolation.
 
@@ -78,6 +79,7 @@ async def _setup_worktrees(
         level=dag_state.current_level,
         model=config.git_model,
         ai_provider=config.ai_provider,
+        build_id=build_id,
     )
 
     if not setup.get("success"):
@@ -365,7 +367,7 @@ def _load_checkpoint(artifacts_dir: str) -> DAGState | None:
 
 
 def _init_dag_state(
-    plan_result: dict, repo_path: str, git_config: dict | None = None,
+    plan_result: dict, repo_path: str, git_config: dict | None = None, build_id: str = "",
 ) -> DAGState:
     """Extract DAGState from a PlanResult dict.
 
@@ -424,6 +426,7 @@ def _init_dag_state(
         architecture_summary=architecture_summary,
         all_issues=all_issues,
         levels=levels,
+        build_id=build_id,
         **git_kwargs,
     )
 
@@ -978,6 +981,7 @@ async def run_dag(
     node_id: str = "swe-planner",
     git_config: dict | None = None,
     resume: bool = False,
+    build_id: str = "",
 ) -> DAGState:
     """Execute a planned DAG with self-healing replanning.
 
@@ -1022,7 +1026,7 @@ async def run_dag(
             result = await _raw_call_fn(target, **kwargs)
             return unwrap_call_result(result, target)
 
-    dag_state = _init_dag_state(plan_result, repo_path, git_config=git_config)
+    dag_state = _init_dag_state(plan_result, repo_path, git_config=git_config, build_id=build_id)
     dag_state.max_replans = config.max_replans
 
     # Resume from checkpoint if requested
@@ -1094,6 +1098,7 @@ async def run_dag(
         if call_fn and dag_state.git_integration_branch:
             active_issues = await _setup_worktrees(
                 dag_state, active_issues, call_fn, node_id, config, note_fn,
+                build_id=dag_state.build_id,
             )
 
         # Track in-flight issues and checkpoint before execution (Bug 4 fix)
