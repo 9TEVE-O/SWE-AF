@@ -49,6 +49,14 @@ Set the project up for clean development from the start:
 - A well-maintained `.gitignore` prevents entire categories of problems
   downstream — treat it as infrastructure, not an afterthought.
 
+## Remote Detection
+
+After setting up the branch, check for a remote origin:
+- Run `git remote get-url origin` — if it succeeds, record the URL as `remote_url`.
+- Run `git remote show origin` or inspect `refs/remotes/origin/HEAD` to determine
+  the default branch (e.g. "main"). Record it as `remote_default_branch`.
+- If there is no remote, set both to "".
+
 ## Output
 
 Return a JSON object with:
@@ -58,6 +66,8 @@ Return a JSON object with:
 - `initial_commit_sha`: the commit SHA at the start
 - `success`: boolean
 - `error_message`: "" on success, error description on failure
+- `remote_url`: the origin remote URL, or "" if no remote
+- `remote_default_branch`: the default branch on the remote (e.g. "main"), or ""
 
 ## Constraints
 
@@ -87,7 +97,8 @@ def git_init_task_prompt(repo_path: str, goal: str) -> str:
         "3. If fresh: `git init`, stage project files (respecting `.gitignore`), create initial commit.\n"
         "4. If existing: record the current branch, create an integration branch.\n"
         "5. Create the `.worktrees/` directory and ensure it's in `.gitignore`.\n"
-        "6. Return a GitInitResult JSON object."
+        "6. Detect the remote origin URL and default branch (if any).\n"
+        "7. Return a GitInitResult JSON object."
     )
 
     return "\n".join(sections)
