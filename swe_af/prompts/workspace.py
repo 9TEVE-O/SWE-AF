@@ -15,15 +15,22 @@ affect others. This is the key isolation mechanism for parallel coding agents.
 
 ## Your Responsibilities
 
-For each issue in this level, create a worktree:
+For each issue in this level, create a worktree using the **exact command format specified in the task**.
+The task will provide either a plain format or a Build-ID-prefixed format — always follow the task.
 
+Default (no Build ID):
 ```bash
 git worktree add <worktrees_dir>/issue-<NN>-<name> -b issue/<NN>-<name> <integration_branch>
 ```
 
+With Build ID (when the task specifies one — CRITICAL: you MUST use this form):
+```bash
+git worktree add <worktrees_dir>/issue-<BUILD_ID>-<NN>-<name> -b issue/<BUILD_ID>-<NN>-<name> <integration_branch>
+```
+
 This creates:
-- A new directory at `<worktrees_dir>/issue-<NN>-<name>`
-- A new branch `issue/<NN>-<name>` starting from the integration branch
+- A new directory at the worktrees path
+- A new branch starting from the integration branch
 - An isolated working copy where the coder agent can freely edit files
 
 ## Output
@@ -34,7 +41,7 @@ Return a JSON object with:
 
 ## Constraints
 
-- If a branch `issue/<NN>-<name>` already exists, remove the old worktree first and recreate.
+- If a branch with the target name already exists, remove the old worktree first and recreate.
 - All worktree operations must be run from the main repository directory.
 - Do NOT modify any source files — only git worktree commands.
 

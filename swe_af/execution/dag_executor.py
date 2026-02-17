@@ -1150,8 +1150,16 @@ async def run_dag(
                 )
 
             # Start cleanup in background (doesn't affect replan decisions)
+            # Use branch_name if injected by _setup_worktrees (includes build_id prefix),
+            # otherwise derive from build_id + sequence + name.
+            _bid = dag_state.build_id
             branches_to_clean = [
-                f"issue/{str(i.get('sequence_number') or 0).zfill(2)}-{i['name']}" for i in active_issues
+                i["branch_name"] if i.get("branch_name") else (
+                    f"issue/{_bid}-{str(i.get('sequence_number') or 0).zfill(2)}-{i['name']}"
+                    if _bid else
+                    f"issue/{str(i.get('sequence_number') or 0).zfill(2)}-{i['name']}"
+                )
+                for i in active_issues
             ]
             cleanup_task = asyncio.create_task(
                 _cleanup_worktrees(
@@ -1328,8 +1336,12 @@ async def run_dag(
 
     # Final worktree sweep — catch anything the per-level cleanup missed
     if call_fn and dag_state.worktrees_dir and dag_state.git_integration_branch:
-        # Collect all issue branches that should have been cleaned
+        # Collect all issue branches that should have been cleaned.
+        # Must use the same build_id-prefixed format that workspace setup created.
+        _bid = dag_state.build_id
         all_branches = [
+            f"issue/{_bid}-{str(i.get('sequence_number') or 0).zfill(2)}-{i['name']}"
+            if _bid else
             f"issue/{str(i.get('sequence_number') or 0).zfill(2)}-{i['name']}"
             for i in dag_state.all_issues
         ]
