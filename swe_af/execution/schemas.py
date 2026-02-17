@@ -444,6 +444,8 @@ class BuildConfig(BaseModel):
     max_verify_fix_cycles: int = 1
     # Git / Merge
     git_model: str = "sonnet"
+    git_init_max_retries: int = 3  # Number of retry attempts for git_init
+    git_init_retry_delay: float = 1.0  # Seconds to wait between retries
     merger_model: str = "sonnet"
     integration_tester_model: str = "sonnet"
     max_integration_test_retries: int = 1

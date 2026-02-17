@@ -14,3 +14,5 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Multi-agent SWE orchestration with plan/execute/verify flow
 - Docker and local execution modes
 - Agent-level API endpoints and artifact persistence
+- OpenCode provider support for open-source models (DeepSeek, Qwen, Llama, MiniMax via OpenRouter)
+- Multiple AI provider support: Claude (Anthropic) and OpenCode (OpenRouter/OpenAI/Google)

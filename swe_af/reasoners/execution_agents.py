@@ -519,10 +519,16 @@ async def run_git_init(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    previous_error: str | None = None,
 ) -> dict:
     """Initialize git repo and create integration branch for feature work.
 
     Returns a GitInitResult dict.
+
+    Args:
+        previous_error: If provided, this is a retry attempt and the error context
+            will be injected into the system prompt to help the agent learn from
+            the previous failure.
     """
     log_dir = os.path.join(artifacts_dir, "logs") if artifacts_dir else None
     log_path = os.path.join(log_dir, "git_init.jsonl") if log_dir else None
@@ -533,6 +539,19 @@ async def run_git_init(
     )
 
     task_prompt = git_init_task_prompt(repo_path=repo_path, goal=goal)
+
+    # Build system prompt with error context if retrying
+    system_prompt = GIT_INIT_SYSTEM_PROMPT
+    if previous_error:
+        system_prompt += (
+            "\n\n## IMPORTANT: Retry Context\n\n"
+            f"The previous attempt failed with error: '{previous_error}'\n\n"
+            "Please carefully review what went wrong and adjust your approach:\n"
+            "- Ensure you provide ALL required fields in the correct format\n"
+            "- Double-check your git commands are valid\n"
+            "- Verify the GitInitResult JSON structure is complete\n"
+            "- If the error indicates a parsing issue, ensure your output is valid JSON\n"
+        )
 
     ai = AgentAI(AgentAIConfig(
         model=model,
@@ -546,7 +565,7 @@ async def run_git_init(
     try:
         response = await ai.run(
             task_prompt,
-            system_prompt=GIT_INIT_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             output_schema=GitInitResult,
             log_file=log_path,
         )

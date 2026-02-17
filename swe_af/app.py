@@ -86,6 +86,11 @@ async def build(
             capture_output=True,
             text=True,
         )
+    else:
+        # Ensure repo_path exists even when no repo_url is provided (fresh init case)
+        # This is needed because planning agents may need to read the repo in parallel with git_init
+        os.makedirs(repo_path, exist_ok=True)
+
     if execute_fn_target:
         cfg.execute_fn_target = execute_fn_target
     if ai_provider:  # Only override if explicitly provided (not empty string default)
@@ -109,6 +114,9 @@ async def build(
 
     app.note("Build starting", tags=["build", "start"])
 
+    # Compute absolute artifacts directory path for logging
+    abs_artifacts_dir = os.path.join(os.path.abspath(repo_path), artifacts_dir)
+
     # 1. PLAN + GIT INIT (concurrent — no data dependency between them)
     app.note("Phase 1: Planning + Git init (parallel)", tags=["build", "parallel"])
 
@@ -128,23 +136,68 @@ async def build(
         ai_provider=cfg.ai_provider,
     )
 
-    git_init_coro = app.call(
-        f"{NODE_ID}.run_git_init",
-        repo_path=repo_path,
-        goal=goal,
-        artifacts_dir=artifacts_dir,
-        model=resolved["git_model"],
-        permission_mode=cfg.permission_mode,
-        ai_provider=cfg.ai_provider,
-    )
+    # Git init with retry logic
+    MAX_GIT_INIT_RETRIES = cfg.git_init_max_retries
+    git_init = None
+    previous_error = None
+    raw_plan = None
 
-    raw_plan, raw_git = await asyncio.gather(plan_coro, git_init_coro)
+    for attempt in range(1, MAX_GIT_INIT_RETRIES + 1):
+        app.note(
+            f"Git init attempt {attempt}/{MAX_GIT_INIT_RETRIES}"
+            + (f" (previous error: {previous_error})" if previous_error else ""),
+            tags=["build", "git_init", "retry"],
+        )
+
+        git_init_coro = app.call(
+            f"{NODE_ID}.run_git_init",
+            repo_path=repo_path,
+            goal=goal,
+            artifacts_dir=abs_artifacts_dir,
+            model=resolved["git_model"],
+            permission_mode=cfg.permission_mode,
+            ai_provider=cfg.ai_provider,
+            previous_error=previous_error,
+        )
+
+        # Run planning only on first attempt, then just git_init on retries
+        if attempt == 1:
+            raw_plan, raw_git = await asyncio.gather(plan_coro, git_init_coro)
+        else:
+            raw_git = await git_init_coro
+
+        # git_init failures are non-fatal — unwrap but don't raise
+        try:
+            git_init = _unwrap(raw_git, "run_git_init")
+        except RuntimeError:
+            git_init = raw_git if isinstance(raw_git, dict) else {"success": False, "error_message": str(raw_git)}
+
+        if git_init.get("success"):
+            app.note(
+                f"Git init succeeded on attempt {attempt}",
+                tags=["build", "git_init", "success"],
+            )
+            break
+        else:
+            previous_error = git_init.get("error_message", "unknown error")
+            app.note(
+                f"Git init attempt {attempt} failed: {previous_error}",
+                tags=["build", "git_init", "failed"],
+            )
+
+            if attempt == MAX_GIT_INIT_RETRIES:
+                app.note(
+                    f"Git init failed after {MAX_GIT_INIT_RETRIES} attempts — "
+                    "proceeding without git workflow",
+                    tags=["build", "git_init", "exhausted"],
+                )
+
+            # Brief delay before retry (except on last attempt)
+            if attempt < MAX_GIT_INIT_RETRIES:
+                await asyncio.sleep(cfg.git_init_retry_delay)
+
+    # Unwrap plan result (should have been set on first attempt)
     plan_result = _unwrap(raw_plan, "plan")
-    # git_init failures are non-fatal — unwrap but don't raise
-    try:
-        git_init = _unwrap(raw_git, "run_git_init")
-    except RuntimeError:
-        git_init = raw_git if isinstance(raw_git, dict) else {"success": False, "error_message": str(raw_git)}
 
     git_config = None
     if git_init.get("success"):

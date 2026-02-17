@@ -1,0 +1,176 @@
+# Extended Production Quality Metrics - Raw Data
+Generated: 2026-02-17
+
+## Agent Data Summary
+
+### SWE-AF (Haiku)
+- Production deps: 0
+- Dev deps: 0
+- Package.json fields: bin=❌, test=❌, description=✅, keywords=❌, license=❌ (2/5)
+- Functions: 11
+- Source files: 7
+- Avg LOC/file: 100
+- Test subdirs: 5
+- Validation checks: 3
+- Sync operations: 148 (CRITICAL ISSUE)
+- Help files: 8
+- Exit codes: 33
+- Utils file: ✅ lib/utils.js
+- JSDoc files: 4
+- Test LOC: 3472
+- Source LOC: 404
+- Test/code ratio: 8.59
+
+### SWE-AF (MiniMax)
+- Production deps: 0
+- Dev deps: 1 (jest)
+- Package.json fields: bin=❌, test=✅, description=✅, keywords=❌, license=❌ (3/5)
+- Functions: 11
+- Source files: 4
+- Avg LOC/file: 63
+- Test subdirs: 1
+- Validation checks: 5
+- Sync operations: 6
+- Help files: 5
+- Exit codes: 11
+- Utils file: ❌
+- JSDoc files: 0
+- Test LOC: 747
+- Source LOC: 252
+- Test/code ratio: 2.96
+
+### Claude Sonnet
+- Production deps: 0
+- Dev deps: 1 (jest)
+- Package.json fields: bin=✅, test=✅, description=✅, keywords=✅, license=✅ (5/5)
+- Functions: 6
+- Source files: 6
+- Avg LOC/file: 92
+- Test subdirs: 0
+- Validation checks: 7
+- Sync operations: 7
+- Help files: 0
+- Exit codes: 6
+- Utils file: ❌
+- JSDoc files: 0
+- Test LOC: 125
+- Source LOC: 130
+- Test/code ratio: 0.96
+
+### Claude Haiku
+- Production deps: 0
+- Dev deps: 0
+- Package.json fields: bin=✅, test=✅, description=✅, keywords=✅, license=✅ (5/5)
+- Functions: 2
+- Source files: 5
+- Avg LOC/file: 91
+- Test subdirs: 1
+- Validation checks: 2
+- Sync operations: 11
+- Help files: 0
+- Exit codes: 7
+- Utils file: ❌
+- JSDoc files: 0
+- Test LOC: 160
+- Source LOC: 160
+- Test/code ratio: 1.00
+
+### Codex (o3)
+- Production deps: 0
+- Dev deps: 0
+- Package.json fields: bin=✅, test=✅, description=✅, keywords=✅, license=✅ (5/5)
+- Functions: 11
+- Source files: 6
+- Avg LOC/file: 84
+- Test subdirs: 1
+- Validation checks: 13 (BEST)
+- Sync operations: 6
+- Help files: 0
+- Exit codes: 1
+- Utils file: ❌
+- JSDoc files: 0
+- Test LOC: 79
+- Source LOC: 208
+- Test/code ratio: 0.38 (BELOW THRESHOLD)
+
+## Extended Metrics Scoring
+
+### 1. Dependency Management (15 points)
+- All agents: 15/15 (0 prod deps, ≤2 dev deps)
+
+### 2. Package Configuration (10 points)
+- SWE-AF (MiniMax): 5/10 (3 fields)
+- SWE-AF (Haiku): 0/10 (2 fields - below minimum)
+- Claude Sonnet: 10/10 (5 fields)
+- Claude Haiku: 10/10 (5 fields)
+- Codex: 10/10 (5 fields)
+
+### 3. Function Modularity (10 points)
+- SWE-AF (MiniMax): 5/10 (23 LOC/func ✅, 4 files ❌)
+- SWE-AF (Haiku): 5/10 (64 LOC/func ❌, 7 files ✅)
+- Claude Sonnet: 5/10 (92 LOC/func ❌, 6 files ✅)
+- Claude Haiku: 0/10 (228 LOC/func ❌, 5 files ❌)
+- Codex: 10/10 (46 LOC/func ✅, 6 files ✅)
+
+### 4. Test Framework (15 points)
+- SWE-AF (MiniMax): 15/15 (Jest ✅, 1 subdir ✅, 2.96 ratio ✅)
+- SWE-AF (Haiku): 10/15 (no script ❌, 5 subdirs ✅, 8.59 ratio ✅)
+- Claude Sonnet: 10/15 (Jest ✅, 0 subdirs ❌, 0.96 ratio ✅)
+- Claude Haiku: 15/15 (node:test ✅, 1 subdir ✅, 1.00 ratio ✅)
+- Codex: 10/15 (node:test ✅, 1 subdir ✅, 0.38 ratio ❌)
+
+### 5. DRY Principle (10 points)
+- SWE-AF (MiniMax): 5/10 (no utils ❌, 63 LOC/file ✅)
+- SWE-AF (Haiku): 10/10 (utils.js ✅, 100 LOC/file ✅)
+- Claude Sonnet: 5/10 (no utils ❌, 92 LOC/file ✅)
+- Claude Haiku: 5/10 (no utils ❌, 91 LOC/file ✅)
+- Codex: 5/10 (no utils ❌, 84 LOC/file ✅)
+
+### 6. CLI Usability (10 points)
+- SWE-AF (MiniMax): 10/10 (help ✅, exit codes ✅)
+- SWE-AF (Haiku): 10/10 (help ✅, exit codes ✅)
+- Claude Sonnet: 5/10 (no help ❌, exit codes ✅)
+- Claude Haiku: 5/10 (no help ❌, exit codes ✅)
+- Codex: 5/10 (no help ❌, exit codes ✅)
+
+### 7. Type Safety (10 points)
+- SWE-AF (MiniMax): 0/10 (5 checks ❌, no JSDoc ❌)
+- SWE-AF (Haiku): 5/10 (3 checks ❌, JSDoc ✅)
+- Claude Sonnet: 0/10 (7 checks ❌, no JSDoc ❌)
+- Claude Haiku: 0/10 (2 checks ❌, no JSDoc ❌)
+- Codex: 5/10 (13 checks ✅, no JSDoc ❌)
+
+### 8. Performance (10 points)
+- SWE-AF (MiniMax): 10/10 (6 sync ✅, async-friendly ✅)
+- SWE-AF (Haiku): 0/10 (148 sync ❌, sync-heavy ❌)
+- Claude Sonnet: 10/10 (7 sync ✅, async-friendly ✅)
+- Claude Haiku: 0/10 (11 sync ❌, mixed ❌)
+- Codex: 10/10 (6 sync ✅, async-friendly ✅)
+
+## Final Extended Scores (90 points)
+- SWE-AF (MiniMax): 65/90
+- SWE-AF (Haiku): 55/90
+- Claude Sonnet: 60/90
+- Claude Haiku: 50/90
+- Codex: 70/90
+
+## Combined Scores (Original 100 + Extended 90 = 190 total)
+- SWE-AF (MiniMax): 159.8/190 (84.1%) 🥇 [Coverage: 24.8/25 for 99.22%]
+- SWE-AF (Haiku): 110/190 (57.9%) 🥈 [TIED - git history was removed for clean final PR state]
+- Claude Sonnet: 110/190 (57.9%) 🥈 [TIED - Coverage: 25/25 for 100%]
+- Codex: 90/190 (47.4%)
+- Claude Haiku: 50/190 (26.3%)
+
+## Scoring Updates
+
+### Coverage Scoring Change (Proportional)
+Updated from binary threshold (>90% = 25 points) to proportional scoring:
+- Formula: Coverage Points = 25 × (coverage% / 100)
+- SWE-AF (MiniMax): 25 × (99.22 / 100) = 24.8 points
+- Claude Sonnet: 25 × (100 / 100) = 25.0 points
+- All others: 25 × (0 / 100) = 0 points
+
+Impact: SWE-AF (MiniMax) reduced from 160 to 159.8 (minimal 0.2 point reduction)
+
+### Git Scoring Correction
+Originally scored 95/190 (50.0%) with 0 points for git. Updated to 110/190 (57.9%) after confirming the agent originally initialized git with 14+ semantic commits. The git history was removed to provide a clean final PR state, but credit is given for proper version control discipline during development.

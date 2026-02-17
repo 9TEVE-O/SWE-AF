@@ -4,8 +4,7 @@ Provider-agnostic AI runtime for the SWE pipeline.
 
 ## Providers
 - `claude`: backed by Claude Code SDK (`claude_agent_sdk`)
-- `codex`: backed by `codex exec` CLI
-- `opencode`: backed by OpenCode ACP (`opencode acp`) via CLI invocation
+- `opencode`: backed by OpenCode CLI (`opencode run -m model`) for 75+ LLM providers (OpenRouter, OpenAI, Google, Anthropic)
 
 ## Selection
 Set provider explicitly in pipeline config:

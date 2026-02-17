@@ -352,51 +352,24 @@ class OpenCodeProviderClient:
         log_fh: IO[str] | None = None,
     ) -> AgentResponse[Any]:
         """Execute single OpenCode invocation via subprocess."""
-        import json
-        import tempfile
-
         start_time = time.time()
 
-        # Create OpenCode config file with specified model
-        # OpenCode reads model from config file, not env vars
-        config_data = {
-            "agents": {
-                "coder": {
-                    "model": model
-                }
-            }
-        }
-
-        # Write config to temp file
-        config_fd, config_path = tempfile.mkstemp(suffix=".json", text=True)
-        try:
-            with os.fdopen(config_fd, 'w') as f:
-                json.dump(config_data, f)
-        except:
-            os.close(config_fd)
-            raise
-
-        # Build command - OpenCode uses -p for non-interactive mode
+        # Build command - OpenCode v1.2+ uses 'run' with -m flag for model selection
         cmd = [
             self.config.opencode_bin,
-            "-p",
+            "run",
+            "-m",
+            model,
             prompt,
-            "-c",
-            cwd,
-            "-q",  # Quiet mode - hide spinner
         ]
 
-        # Construct full environment (inherit + add user env + disable TTY)
-        # CRITICAL: Point OpenCode to our config file with the model setting
+        # Construct full environment (inherit + add user env)
         full_env = {
             **os.environ,
             **env,
-            "OPENCODE_CONFIG": config_path,  # Tell OpenCode to use our config file
-            "TERM": "dumb",  # Disable fancy terminal features
-            "NO_COLOR": "1",  # Disable colors
         }
 
-        # Execute OpenCode with prompt in non-interactive mode
+        # Execute OpenCode in headless mode
         # CRITICAL: Set stdin=DEVNULL to prevent OpenCode from trying to open /dev/tty
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -407,26 +380,19 @@ class OpenCodeProviderClient:
             env=full_env,
         )
 
-        try:
-            # Wait for completion
-            stdout_b, stderr_b = await proc.communicate()
-            duration_ms = int((time.time() - start_time) * 1000)
+        # Wait for completion
+        stdout_b, stderr_b = await proc.communicate()
+        duration_ms = int((time.time() - start_time) * 1000)
 
-            stdout_text = stdout_b.decode("utf-8", errors="replace")
-            stderr_text = stderr_b.decode("utf-8", errors="replace")
+        stdout_text = stdout_b.decode("utf-8", errors="replace")
+        stderr_text = stderr_b.decode("utf-8", errors="replace")
 
-            if proc.returncode != 0:
-                error_msg = f"opencode failed with exit code {proc.returncode}: {stderr_text}"
-                raise RuntimeError(error_msg)
+        if proc.returncode != 0:
+            error_msg = f"opencode failed with exit code {proc.returncode}: {stderr_text}"
+            raise RuntimeError(error_msg)
 
-            # Parse output - OpenCode writes response to stdout
-            final_text = stdout_text.strip() or None
-        finally:
-            # Clean up temp config file
-            try:
-                os.unlink(config_path)
-            except:
-                pass
+        # Parse output - OpenCode writes response to stdout
+        final_text = stdout_text.strip() or None
 
         # Build metrics
         metrics = Metrics(

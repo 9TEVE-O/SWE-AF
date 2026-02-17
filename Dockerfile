@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
         | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
     apt-get update && apt-get install -y --no-install-recommends gh && \
-    # Install OpenCode CLI for opencode provider
-    curl -fsSL https://raw.githubusercontent.com/opencode-ai/opencode/refs/heads/main/install | bash && \
+    # Install OpenCode CLI v1.2+ for opencode provider (with run --model support)
+    curl -fsSL https://opencode.ai/install | bash && \
     rm -rf /var/lib/apt/lists/*
 
 # Add OpenCode to PATH for non-interactive shells

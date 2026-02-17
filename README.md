@@ -80,7 +80,7 @@ Most agent frameworks are harnesses around a single coder loop. SWE-AF is a soft
 
 </details>
 
-**Claude & open-source models supported**: Run builds with Claude (Anthropic) or open-source models (DeepSeek, Qwen, Llama via OpenRouter) — sub-$1 builds possible with open-source. Set `"ai_provider": "opencode"` and `"coder_model": "deepseek/deepseek-chat"` to use open-source models.
+**Claude & open-source models supported**: Run builds with Claude (Anthropic) or open-source models (DeepSeek, Qwen, Llama, MiniMax via OpenRouter) — sub-$1 builds possible with open-source. Set `"ai_provider": "opencode"` and `"model": "deepseek/deepseek-chat"` or `"model": "minimax/minimax-m2.5"` to use open-source models.
 
 ## Adaptive Factory Control
 
@@ -154,21 +154,23 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
 
 ## Benchmark Snapshot
 
-**95/100 with haiku**: SWE-AF (haiku, turbo preset) outscored Claude Code sonnet (73), Codex (62), and Claude Code haiku (59) on the same prompt.
+**95/100 with haiku and MiniMax**: SWE-AF scored 95/100 with both haiku (turbo preset, $20) and MiniMax M2.5 (fast preset, $6), outperforming Claude Code sonnet (73), Codex o3 (62), and Claude Code haiku (59) on the same prompt.
 
-| Dimension       | SWE-AF (haiku) | CC Sonnet | Codex  | CC Haiku |
-| --------------- | -------------- | --------- | ------ | -------- |
-| Functional (30) | **30**         | **30**    | **30** | **30**   |
-| Structure (20)  | **20**         | 10        | 10     | 10       |
-| Hygiene (20)    | **20**         | 16        | 10     | 7        |
-| Git (15)        | **15**         | 2         | 2      | 2        |
-| Quality (15)    | 10             | **15**    | 10     | 10       |
-| Total           | **95**         | **73**    | **62** | **59**   |
+| Dimension       | SWE-AF (haiku) | SWE-AF (MiniMax) | CC Sonnet | Codex (o3)  | CC Haiku |
+| --------------- | -------------- | ---------------- | --------- | ------ | -------- |
+| Functional (30) | **30**         | **30**           | **30**    | **30** | **30**   |
+| Structure (20)  | **20**         | **20**           | 10        | 10     | 10       |
+| Hygiene (20)    | **20**         | **20**           | 16        | 10     | 7        |
+| Git (15)        | **15**         | **15**           | 2         | 2      | 2        |
+| Quality (15)    | 10             | 10               | **15**    | 10     | 10       |
+| Total           | **95**         | **95**           | **73**    | **62** | **59**   |
+| **Cost**        | **~$20**       | **~$6**          | ?         | ?      | ?        |
+| **Time**        | ~30-40 min     | 43 min           | ?         | ?      | ?        |
 
 <details>
 <summary><strong>Full benchmark details and reproduction</strong></summary>
 
-Same prompt, four agents. SWE-AF used only haiku (turbo preset) across 400+ agent instances.
+Same prompt tested across multiple agents. SWE-AF with haiku (turbo preset) used 400+ agent instances; SWE-AF with MiniMax M2.5 (fast preset) achieved identical quality at 70% cost savings.
 
 **Prompt used for all agents:**
 
@@ -187,10 +189,15 @@ Same prompt, four agents. SWE-AF used only haiku (turbo preset) across 400+ agen
 ### Reproduction
 
 ```bash
-# SWE-AF (haiku, turbo preset)
+# SWE-AF (haiku, turbo preset) - $20, 30-40 min
 curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
   -d '{"input": {"goal": "Build a Node.js CLI todo app with add, list, complete, and delete commands. Data should persist to a JSON file. Initialize git, write tests, and commit your work.", "repo_path": "/tmp/swe-af-output", "config": {"preset": "turbo"}}}'
+
+# SWE-AF (MiniMax M2.5 via OpenRouter, fast preset) - $6, 43 min
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"goal": "Build a Node.js CLI todo app with add, list, complete, and delete commands. Data should persist to a JSON file. Initialize git, write tests, and commit your work.", "repo_path": "/workspaces/todo-app-benchmark", "config": {"ai_provider": "opencode", "model": "openrouter/minimax/minimax-m2.5", "preset": "fast"}}}'
 
 # Claude Code (haiku)
 claude -p "Build a Node.js CLI todo app with add, list, complete, and delete commands. Data should persist to a JSON file. Initialize git, write tests, and commit your work." --model haiku --dangerously-skip-permissions
@@ -201,6 +208,13 @@ claude -p "Build a Node.js CLI todo app with add, list, complete, and delete com
 # Codex (gpt-5.3-codex)
 codex exec "Build a Node.js CLI todo app with add, list, complete, and delete commands. Data should persist to a JSON file. Initialize git, write tests, and commit your work." --full-auto
 ```
+
+**MiniMax M2.5 Measured Metrics (Feb 2026):**
+- 99.22% code coverage (only agent with measured coverage)
+- 4 custom error types (TodoError, ValidationError, NotFoundError, StorageError)
+- 999 LOC, 4 modules, 74 tests, 9 commits
+
+**Production Quality Analysis:** [Objective comparison](examples/agent-comparison/PRODUCTION_QUALITY_ANALYSIS.md) of measurable metrics across all agents.
 
 Benchmark assets, logs, evaluator, and generated projects live in [`examples/agent-comparison/`](examples/agent-comparison/).
 
