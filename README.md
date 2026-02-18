@@ -138,7 +138,25 @@ This is the core factory-control behavior: control agents supervise worker agent
 
 ## Quick Start
 
-### 1. Requirements
+### Deploy with Railway (fastest)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/swe-af)
+
+One click deploys SWE-AF + AgentField control plane + PostgreSQL. Set two environment variables in Railway:
+
+- `CLAUDE_CODE_OAUTH_TOKEN` — run `claude setup-token` in [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (uses Pro/Max subscription credits)
+- `GH_TOKEN` — GitHub personal access token with `repo` scope for draft PR creation
+
+Once deployed, trigger a build:
+
+```bash
+curl -X POST https://<control-plane>.up.railway.app/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: this-is-a-secret" \
+  -d '{"input": {"goal": "Add JWT auth", "repo_url": "https://github.com/user/my-repo"}}'
+```
+
+### 1. Requirements (local)
 
 - Python 3.12+
 - AgentField control plane (`af`)
