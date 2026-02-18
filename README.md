@@ -150,7 +150,7 @@ One click deploys SWE-AF + AgentField control plane + PostgreSQL. Set two enviro
 Once deployed, trigger a build:
 
 ```bash
-curl -X POST https://<your-app>.up.railway.app/api/v1/execute/async/swe-planner.build \
+curl -X POST https://<control-plane>.up.railway.app/api/v1/execute/async/swe-planner.build \
   -H "Content-Type: application/json" \
   -H "X-API-Key: this-is-a-secret" \
   -d '{"input": {"goal": "Add JWT auth", "repo_url": "https://github.com/user/my-repo"}}'
