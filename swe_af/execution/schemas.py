@@ -183,6 +183,7 @@ class DAGState(BaseModel):
     merged_branches: list[str] = []
     unmerged_branches: list[str] = []  # branches that failed to merge
     worktrees_dir: str = ""  # e.g. repo_path/.worktrees
+    build_id: str = ""  # unique per build() call; namespaces git branches/worktrees
 
     # --- Merge/test history ---
     merge_results: list[dict] = []

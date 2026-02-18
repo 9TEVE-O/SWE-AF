@@ -28,7 +28,9 @@ back into a single integration branch.
 
 1. Record the current branch as `original_branch`.
 2. Ensure the working tree is clean (warn if not, but proceed).
-3. Create an integration branch: `git checkout -b feature/<goal-slug>` from HEAD.
+3. Create an integration branch from HEAD:
+   - If a **Build ID** is provided in the task: `git checkout -b feature/<build-id>-<goal-slug>`
+   - Otherwise: `git checkout -b feature/<goal-slug>`
 4. Record the initial commit SHA (HEAD before any work).
 
 ## Worktrees Directory
@@ -82,13 +84,15 @@ Return a JSON object with:
 """
 
 
-def git_init_task_prompt(repo_path: str, goal: str) -> str:
+def git_init_task_prompt(repo_path: str, goal: str, build_id: str = "") -> str:
     """Build the task prompt for the git initialization agent."""
     sections: list[str] = []
 
     sections.append("## Repository Setup Task")
     sections.append(f"- **Repository path**: `{repo_path}`")
     sections.append(f"- **Project goal**: {goal}")
+    if build_id:
+        sections.append(f"- **Build ID**: `{build_id}` (prefix integration branch slug with this)")
 
     sections.append(
         "\n## Your Task\n"

@@ -15,15 +15,22 @@ affect others. This is the key isolation mechanism for parallel coding agents.
 
 ## Your Responsibilities
 
-For each issue in this level, create a worktree:
+For each issue in this level, create a worktree using the **exact command format specified in the task**.
+The task will provide either a plain format or a Build-ID-prefixed format — always follow the task.
 
+Default (no Build ID):
 ```bash
 git worktree add <worktrees_dir>/issue-<NN>-<name> -b issue/<NN>-<name> <integration_branch>
 ```
 
+With Build ID (when the task specifies one — CRITICAL: you MUST use this form):
+```bash
+git worktree add <worktrees_dir>/issue-<BUILD_ID>-<NN>-<name> -b issue/<BUILD_ID>-<NN>-<name> <integration_branch>
+```
+
 This creates:
-- A new directory at `<worktrees_dir>/issue-<NN>-<name>`
-- A new branch `issue/<NN>-<name>` starting from the integration branch
+- A new directory at the worktrees path
+- A new branch starting from the integration branch
 - An isolated working copy where the coder agent can freely edit files
 
 ## Output
@@ -34,7 +41,7 @@ Return a JSON object with:
 
 ## Constraints
 
-- If a branch `issue/<NN>-<name>` already exists, remove the old worktree first and recreate.
+- If a branch with the target name already exists, remove the old worktree first and recreate.
 - All worktree operations must be run from the main repository directory.
 - Do NOT modify any source files — only git worktree commands.
 
@@ -95,6 +102,7 @@ def workspace_setup_task_prompt(
     integration_branch: str,
     issues: list[dict],
     worktrees_dir: str,
+    build_id: str = "",
 ) -> str:
     """Build the task prompt for the workspace setup agent."""
     sections: list[str] = []
@@ -103,6 +111,8 @@ def workspace_setup_task_prompt(
     sections.append(f"- **Repository path**: `{repo_path}`")
     sections.append(f"- **Integration branch**: `{integration_branch}`")
     sections.append(f"- **Worktrees directory**: `{worktrees_dir}`")
+    if build_id:
+        sections.append(f"- **Build ID**: `{build_id}`")
 
     sections.append("\n### Issues to create worktrees for:")
     for issue in issues:
@@ -111,16 +121,38 @@ def workspace_setup_task_prompt(
         seq = str(issue.get("sequence_number") or 0).zfill(2)
         sections.append(f"- issue_name=`{name}`, seq=`{seq}`, title: {title}")
 
-    sections.append(
+    if build_id:
+        worktree_cmd = (
+            f"git worktree add <worktrees_dir>/issue-{build_id}-<NN>-<name>"
+            f" -b issue/{build_id}-<NN>-<name> <integration_branch>"
+        )
+        branch_note = (
+            f"   Branch names MUST be prefixed with the Build ID: `issue/{build_id}-<NN>-<name>`\n"
+            f"   Worktree dirs MUST be prefixed with the Build ID: `issue-{build_id}-<NN>-<name>`\n"
+            "   This prevents collisions with other concurrent builds on the same repository."
+        )
+    else:
+        worktree_cmd = (
+            "git worktree add <worktrees_dir>/issue-<NN>-<name>"
+            " -b issue/<NN>-<name> <integration_branch>"
+        )
+        branch_note = ""
+
+    task = (
         "\n## Your Task\n"
         "1. Ensure you are in the main repository directory.\n"
         "2. For each issue, create a worktree:\n"
-        "   `git worktree add <worktrees_dir>/issue-<NN>-<name> -b issue/<NN>-<name> <integration_branch>`\n"
+        f"   `{worktree_cmd}`\n"
+    )
+    if branch_note:
+        task += branch_note + "\n"
+    task += (
         "3. Verify each worktree was created successfully.\n"
         "4. Return a JSON object with `workspaces` and `success`.\n\n"
         "IMPORTANT: In the output JSON, `issue_name` must be the canonical name "
         "(e.g. `value-copy-trait`), NOT the sequence-prefixed name (e.g. `01-value-copy-trait`)."
     )
+    sections.append(task)
 
     return "\n".join(sections)
 
