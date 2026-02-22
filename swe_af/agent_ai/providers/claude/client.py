@@ -62,6 +62,9 @@ _SDK_PROTOCOL_ERROR_PATTERNS = frozenset(
     }
 )
 
+# Keep in sync with dependency pins in pyproject/requirements.
+_STABLE_SDK_VERSION = "0.1.20"
+
 DEFAULT_TOOLS: list[str] = [
     Tool.READ,
     Tool.WRITE,
@@ -76,8 +79,6 @@ _SCHEMA_FILE_TOOLS: list[str] = [Tool.WRITE, Tool.READ]
 
 def _is_transient(error: str) -> bool:
     if _is_sdk_protocol_error(error):
-        # Protocol/schema mismatch between SDK and upstream event stream
-        # is deterministic and should fail fast with guidance.
         return False
     low = error.lower()
     return any(p in low for p in _TRANSIENT_PATTERNS)
@@ -101,7 +102,7 @@ def _build_sdk_protocol_error_message(raw_error: str, *, sdk_version: str | None
         f"{raw_error}. "
         f"Detected claude-agent-sdk version={version}. "
         "This is a known stream compatibility failure in some SDK versions. "
-        "Use claude-agent-sdk==0.1.20 for SWE-AF stability."
+        f"Use claude-agent-sdk=={_STABLE_SDK_VERSION} for SWE-AF stability."
     )
 
 
@@ -420,7 +421,7 @@ class ClaudeProviderClient:
 
                 last_exc = e
                 _captured_stderr = "\n".join(stderr_lines[-50:]) if stderr_lines else ""
-                if attempt < effective_retries and _is_transient(str(e)):
+                if attempt < effective_retries and _is_transient(raw_error):
                     if log_fh:
                         _write_log(
                             log_fh,
