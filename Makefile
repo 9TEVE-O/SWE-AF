@@ -3,7 +3,7 @@ PYTHON ?= python3
 .PHONY: test check clean clean-examples
 
 test:
-	$(PYTHON) -m unittest discover -s tests -v
+	$(PYTHON) -m pytest tests/ -x -q
 
 check: test
 	$(PYTHON) -m compileall -q swe_af/
