@@ -199,6 +199,11 @@ async def build(
     if cfg.repo_url and not repo_path:
         repo_path = f"/workspaces/{_repo_name_from_url(cfg.repo_url)}"
 
+    # Multi-repo: derive repo_path from primary repo; _clone_repos handles cloning later
+    if not repo_path and len(cfg.repos) > 1:
+        primary = next((r for r in cfg.repos if r.role == "primary"), cfg.repos[0])
+        repo_path = f"/workspaces/{_repo_name_from_url(primary.repo_url)}"
+
     if not repo_path:
         raise ValueError("Either repo_path or repo_url must be provided")
 
