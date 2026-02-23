@@ -29,4 +29,3 @@ jobs:
         run: make check
         env:
           AGENTFIELD_SERVER: http://localhost:9999
-          NODE_ID: test-node
