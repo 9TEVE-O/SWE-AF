@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import json
 import os
 import time
@@ -55,6 +56,15 @@ _TRANSIENT_PATTERNS = frozenset(
     }
 )
 
+_SDK_PROTOCOL_ERROR_PATTERNS = frozenset(
+    {
+        "unknown message type: rate_limit_event",
+    }
+)
+
+# Keep in sync with dependency pins in pyproject/requirements.
+_STABLE_SDK_VERSION = "0.1.20"
+
 DEFAULT_TOOLS: list[str] = [
     Tool.READ,
     Tool.WRITE,
@@ -68,8 +78,32 @@ _SCHEMA_FILE_TOOLS: list[str] = [Tool.WRITE, Tool.READ]
 
 
 def _is_transient(error: str) -> bool:
+    if _is_sdk_protocol_error(error):
+        return False
     low = error.lower()
     return any(p in low for p in _TRANSIENT_PATTERNS)
+
+
+def _is_sdk_protocol_error(error: str) -> bool:
+    low = error.lower()
+    return any(p in low for p in _SDK_PROTOCOL_ERROR_PATTERNS)
+
+
+def _installed_sdk_version() -> str:
+    try:
+        return importlib.metadata.version("claude-agent-sdk")
+    except Exception:
+        return "unknown"
+
+
+def _build_sdk_protocol_error_message(raw_error: str, *, sdk_version: str | None = None) -> str:
+    version = sdk_version or _installed_sdk_version()
+    return (
+        f"{raw_error}. "
+        f"Detected claude-agent-sdk version={version}. "
+        "This is a known stream compatibility failure in some SDK versions. "
+        f"Use claude-agent-sdk=={_STABLE_SDK_VERSION} for SWE-AF stability."
+    )
 
 
 def _schema_output_path(cwd: str) -> str:
@@ -378,9 +412,16 @@ class ClaudeProviderClient:
                 )
 
             except Exception as e:
+                raw_error = str(e)
+                if _is_sdk_protocol_error(raw_error):
+                    compat_error = RuntimeError(_build_sdk_protocol_error_message(raw_error))
+                    if log_fh:
+                        _write_log(log_fh, "end", is_error=True, error=str(compat_error))
+                    raise compat_error from e
+
                 last_exc = e
                 _captured_stderr = "\n".join(stderr_lines[-50:]) if stderr_lines else ""
-                if attempt < effective_retries and _is_transient(str(e)):
+                if attempt < effective_retries and _is_transient(raw_error):
                     if log_fh:
                         _write_log(
                             log_fh,
