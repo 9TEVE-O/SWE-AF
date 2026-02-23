@@ -69,15 +69,23 @@ class TestNodeIdEnvContamination:
         This test documents the real contamination bug: NODE_ID in the environment
         overrides the swe-fast default in swe_af.fast.app. In production each
         service must be started with its own NODE_ID set correctly.
-        """
-        # Verify the contamination scenario (NODE_ID is set in test environment)
-        current_node_id = os.getenv("NODE_ID", "NOT_SET")
-        import swe_af.fast.app as fast_app  # noqa: PLC0415
 
-        # The module-level NODE_ID is read at import time from env
-        # If NODE_ID=swe-planner, fast_app.NODE_ID will be 'swe-planner'
-        assert fast_app.NODE_ID == current_node_id, (
-            f"fast_app.NODE_ID={fast_app.NODE_ID!r} should match env NODE_ID={current_node_id!r}. "
+        Uses a subprocess to get a clean import with NODE_ID=swe-planner.
+        """
+        env = dict(os.environ)
+        env["NODE_ID"] = "swe-planner"
+        env["AGENTFIELD_SERVER"] = "http://localhost:9999"
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import swe_af.fast.app as a; print(a.NODE_ID)"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Subprocess failed: {result.stderr}"
+        # Documents contamination: fast app picks up NODE_ID=swe-planner from env
+        assert result.stdout.strip() == "swe-planner", (
+            f"Expected NODE_ID contamination ('swe-planner'), got {result.stdout.strip()!r}. "
             "This documents the env contamination: fast app respects NODE_ID from environment."
         )
 
