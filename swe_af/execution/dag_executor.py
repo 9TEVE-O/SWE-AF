@@ -1089,19 +1089,46 @@ async def _execute_level(
     note_fn: Callable | None = None,
     memory_fn: Callable | None = None,
 ) -> LevelResult:
-    """Execute all issues in a level concurrently.
+    """Execute all issues in a level with bounded concurrency.
+
+    Uses ``config.max_concurrent_issues`` to cap parallel execution.
+    A value of 0 means unlimited (original behavior).
 
     Returns a LevelResult with issues classified into completed, failed, and
     skipped buckets.
     """
-    tasks = [
-        _execute_single_issue(
-            issue, dag_state, execute_fn, config,
-            call_fn=call_fn, node_id=node_id, note_fn=note_fn,
-            memory_fn=memory_fn,
-        )
-        for issue in active_issues
-    ]
+    max_concurrent = config.max_concurrent_issues
+
+    if max_concurrent > 0 and len(active_issues) > max_concurrent:
+        # Bounded concurrency: use a semaphore to limit parallel issues
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        if note_fn:
+            note_fn(
+                f"Concurrency limiter: {len(active_issues)} issues, "
+                f"max {max_concurrent} parallel",
+                tags=["execution", "concurrency_limit"],
+            )
+
+        async def _guarded_execute(issue: dict) -> IssueResult:
+            async with semaphore:
+                return await _execute_single_issue(
+                    issue, dag_state, execute_fn, config,
+                    call_fn=call_fn, node_id=node_id, note_fn=note_fn,
+                    memory_fn=memory_fn,
+                )
+
+        tasks = [_guarded_execute(issue) for issue in active_issues]
+    else:
+        tasks = [
+            _execute_single_issue(
+                issue, dag_state, execute_fn, config,
+                call_fn=call_fn, node_id=node_id, note_fn=note_fn,
+                memory_fn=memory_fn,
+            )
+            for issue in active_issues
+        ]
+
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     level_result = LevelResult(level_index=level_index)
@@ -1457,6 +1484,31 @@ async def run_dag(
                 f"completed={completed_names_level}, failed={failed_names_level}",
                 tags=["execution", "level", "complete"],
             )
+
+        # --- LEVEL FAILURE ABORT CHECK ---
+        # When most issues in a level fail (e.g. resource exhaustion, network
+        # down), continuing to subsequent levels is wasteful — the same root
+        # cause will cascade. Abort early instead.
+        total_in_level = len(level_result.completed) + len(level_result.failed) + len(level_result.skipped)
+        if total_in_level > 0 and config.level_failure_abort_threshold > 0:
+            failure_ratio = len(level_result.failed) / total_in_level
+            if failure_ratio >= config.level_failure_abort_threshold and len(level_result.failed) > 1:
+                if note_fn:
+                    note_fn(
+                        f"Level {dag_state.current_level} failure ratio "
+                        f"{failure_ratio:.0%} >= threshold "
+                        f"{config.level_failure_abort_threshold:.0%} — "
+                        f"aborting DAG to prevent cascading failures",
+                        tags=["execution", "abort", "level_failure_threshold"],
+                    )
+                # Skip all remaining issues
+                for future_level in dag_state.levels[dag_state.current_level + 1:]:
+                    for name in future_level:
+                        if name not in dag_state.skipped_issues:
+                            dag_state.skipped_issues.append(name)
+                dag_state.current_level = len(dag_state.levels)
+                _save_checkpoint(dag_state, note_fn)
+                break
 
         # --- MERGE GATE (git workflow) ---
         file_conflicts = plan_result.get("file_conflicts", [])

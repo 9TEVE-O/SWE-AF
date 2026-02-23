@@ -622,6 +622,8 @@ class BuildConfig(BaseModel):
     max_advisor_invocations: int = 2
     enable_issue_advisor: bool = True
     enable_learning: bool = False  # Cross-issue shared memory (conventions, failure patterns, bug patterns)
+    max_concurrent_issues: int = 3          # max parallel issues per level (0 = unlimited)
+    level_failure_abort_threshold: float = 0.8  # abort DAG when >= this fraction of a level fails
 
     @model_validator(mode="before")
     @classmethod
@@ -719,6 +721,8 @@ class BuildConfig(BaseModel):
             "max_advisor_invocations": self.max_advisor_invocations,
             "enable_issue_advisor": self.enable_issue_advisor,
             "enable_learning": self.enable_learning,
+            "max_concurrent_issues": self.max_concurrent_issues,
+            "level_failure_abort_threshold": self.level_failure_abort_threshold,
         }
 
 
@@ -785,6 +789,8 @@ class ExecutionConfig(BaseModel):
     max_advisor_invocations: int = 2
     enable_issue_advisor: bool = True
     enable_learning: bool = False
+    max_concurrent_issues: int = 3          # max parallel issues per level (0 = unlimited)
+    level_failure_abort_threshold: float = 0.8  # abort DAG when >= this fraction of a level fails
 
     @model_validator(mode="before")
     @classmethod
