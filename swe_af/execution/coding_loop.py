@@ -252,6 +252,27 @@ async def _write_memory_on_failure(
 
 
 # ---------------------------------------------------------------------------
+# Stuck-loop detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_stuck_loop(iteration_history: list[dict], window: int = 3) -> bool:
+    """Return True if the last ``window`` iterations are all non-blocking "fix" cycles.
+
+    This catches the default-path failure mode where the reviewer repeatedly
+    returns approved=False / blocking=False with similar feedback, causing the
+    coder to re-attempt the same work without converging.
+    """
+    if len(iteration_history) < window:
+        return False
+    recent = iteration_history[-window:]
+    return all(
+        entry.get("action") == "fix" and not entry.get("review_blocking", False)
+        for entry in recent
+    )
+
+
+# ---------------------------------------------------------------------------
 # Path routing helpers
 # ---------------------------------------------------------------------------
 
@@ -638,6 +659,7 @@ async def run_coding_loop(
             qa_result = None
             synthesis_result = None
             _save_artifact(dag_state.artifacts_dir, iteration_id, "review", review_result)
+
             stuck = False
 
         # Record iteration for history
@@ -733,27 +755,77 @@ async def run_coding_loop(
         else:
             feedback = summary
 
-        # Stuck detection
-        if stuck:
-            if note_fn:
-                note_fn(
-                    f"Coding loop STUCK: {issue_name} — breaking after {iteration} iterations",
-                    tags=["coding_loop", "stuck", issue_name],
-                )
-            await _write_memory_on_failure(
-                memory_fn, issue, summary, review_result, note_fn,
-            )
-            return IssueResult(
-                issue_name=issue_name,
-                outcome=IssueOutcome.FAILED_UNRECOVERABLE,
-                error_message=f"Stuck loop detected: {summary}",
-                files_changed=files_changed,
-                branch_name=branch_name,
-                attempts=iteration,
-                iteration_history=iteration_history,
-            )
+        # Stuck detection — default path uses history-based detection since it
+        # has no synthesizer to set the stuck flag.
+        if not stuck and not needs_deeper_qa:
+            stuck = _detect_stuck_loop(iteration_history)
 
-    # Loop exhausted without approval
+        if stuck:
+            last_blocking = review_result.get("blocking", False) if review_result else False
+            if not last_blocking and files_changed:
+                # Non-blocking stuck loop with code changes → accept with debt
+                if note_fn:
+                    note_fn(
+                        f"Coding loop STUCK (non-blocking): {issue_name} — "
+                        f"accepting with debt after {iteration} iterations",
+                        tags=["coding_loop", "stuck", "accept_debt", issue_name],
+                    )
+                return IssueResult(
+                    issue_name=issue_name,
+                    outcome=IssueOutcome.COMPLETED_WITH_DEBT,
+                    result_summary=f"Accepted with debt (stuck loop, non-blocking): {summary}",
+                    files_changed=files_changed,
+                    branch_name=branch_name,
+                    attempts=iteration,
+                    iteration_history=iteration_history,
+                )
+            else:
+                if note_fn:
+                    note_fn(
+                        f"Coding loop STUCK: {issue_name} — breaking after {iteration} iterations",
+                        tags=["coding_loop", "stuck", issue_name],
+                    )
+                await _write_memory_on_failure(
+                    memory_fn, issue, summary, review_result, note_fn,
+                )
+                return IssueResult(
+                    issue_name=issue_name,
+                    outcome=IssueOutcome.FAILED_UNRECOVERABLE,
+                    error_message=f"Stuck loop detected: {summary}",
+                    files_changed=files_changed,
+                    branch_name=branch_name,
+                    attempts=iteration,
+                    iteration_history=iteration_history,
+                )
+
+    # Loop exhausted without approval — check if we can accept with debt
+    last_review = review_result if 'review_result' in dir() else None
+    last_blocking = (last_review.get("blocking", False) if last_review else False)
+
+    if not last_blocking and files_changed:
+        # Reviewer was never blocking and coder produced changes — accept with debt
+        # rather than failing entirely.  This prevents trivial tasks from stalling
+        # the whole DAG when the reviewer keeps requesting minor polish.
+        if note_fn:
+            note_fn(
+                f"Coding loop exhausted (non-blocking): {issue_name} — "
+                f"accepting with debt after {max_iterations} iterations",
+                tags=["coding_loop", "exhausted", "accept_debt", issue_name],
+            )
+        return IssueResult(
+            issue_name=issue_name,
+            outcome=IssueOutcome.COMPLETED_WITH_DEBT,
+            result_summary=(
+                f"Accepted with debt after {max_iterations} iterations "
+                f"(reviewer non-blocking, code changes present)"
+            ),
+            files_changed=files_changed,
+            branch_name=branch_name,
+            attempts=max_iterations,
+            iteration_history=iteration_history,
+        )
+
+    # Truly unrecoverable — reviewer was blocking or no code was produced
     if note_fn:
         note_fn(
             f"Coding loop exhausted: {issue_name} after {max_iterations} iterations",
@@ -761,7 +833,7 @@ async def run_coding_loop(
         )
 
     await _write_memory_on_failure(
-        memory_fn, issue, "Loop exhausted", review_result if 'review_result' in dir() else None, note_fn,
+        memory_fn, issue, "Loop exhausted", last_review, note_fn,
     )
 
     return IssueResult(
