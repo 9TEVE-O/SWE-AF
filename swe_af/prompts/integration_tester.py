@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are an integration QA engineer. Multiple feature branches have just been
 merged into an integration branch, possibly with conflict resolutions. Your job
@@ -78,6 +81,7 @@ def integration_tester_task_prompt(
     prd_summary: str,
     architecture_summary: str,
     conflict_resolutions: list[dict],
+    workspace_manifest: WorkspaceManifest | None = None,
 ) -> str:
     """Build the task prompt for the integration tester agent.
 
@@ -88,8 +92,14 @@ def integration_tester_task_prompt(
         prd_summary: Summary of the PRD.
         architecture_summary: Summary of the architecture.
         conflict_resolutions: List of conflict resolution dicts from the merger.
+        workspace_manifest: Optional multi-repo workspace manifest.
     """
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
 
     sections.append("## Integration Testing Task")
     sections.append(f"- **Repository path**: `{repo_path}`")

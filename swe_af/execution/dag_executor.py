@@ -61,6 +61,12 @@ async def _setup_worktrees(
 ) -> list[dict]:
     """Create git worktrees for parallel issue isolation.
 
+    Single-repo path (workspace_manifest is None): creates all worktrees in
+    dag_state.repo_path as before.
+
+    Multi-repo path (workspace_manifest is set): groups issues by target_repo
+    and dispatches one run_workspace_setup call per repo.
+
     Returns the active_issues list with worktree_path and branch_name injected.
     """
     if note_fn:
@@ -70,28 +76,94 @@ async def _setup_worktrees(
             tags=["execution", "worktree_setup", "start"],
         )
 
-    setup = await call_fn(
-        f"{node_id}.run_workspace_setup",
-        repo_path=dag_state.repo_path,
-        integration_branch=dag_state.git_integration_branch,
-        issues=active_issues,
-        worktrees_dir=dag_state.worktrees_dir,
-        artifacts_dir=dag_state.artifacts_dir,
-        level=dag_state.current_level,
-        model=config.git_model,
-        ai_provider=config.ai_provider,
-        build_id=build_id,
-    )
+    # --- Single-repo path: unchanged ---
+    if dag_state.workspace_manifest is None:
+        setup = await call_fn(
+            f"{node_id}.run_workspace_setup",
+            repo_path=dag_state.repo_path,
+            integration_branch=dag_state.git_integration_branch,
+            issues=active_issues,
+            worktrees_dir=dag_state.worktrees_dir,
+            artifacts_dir=dag_state.artifacts_dir,
+            level=dag_state.current_level,
+            model=config.git_model,
+            ai_provider=config.ai_provider,
+            build_id=build_id,
+        )
 
-    if not setup.get("success"):
-        if note_fn:
-            note_fn("Worktree setup failed — issues will run without isolation",
-                     tags=["execution", "worktree_setup", "error"])
-        return active_issues
+        if not setup.get("success"):
+            if note_fn:
+                note_fn("Worktree setup failed — issues will run without isolation",
+                         tags=["execution", "worktree_setup", "error"])
+            return active_issues
 
-    # Build worktree map with canonical name as key.
-    # The workspace agent may return issue_name as "value-copy-trait" (correct)
-    # or "01-value-copy-trait" (with sequence prefix). Handle both.
+        return _enrich_issues_from_setup(
+            active_issues, setup, dag_state.git_integration_branch,
+        )
+
+    # --- Multi-repo path: group issues by target_repo ---
+    manifest = WorkspaceManifest(**dag_state.workspace_manifest)
+    by_repo: dict[str, list[dict]] = {}
+    for issue in active_issues:
+        repo = issue.get("target_repo", "") or manifest.primary_repo_name
+        by_repo.setdefault(repo, []).append(issue)
+
+    if note_fn:
+        note_fn(
+            f"Multi-repo worktree setup: dispatching to {list(by_repo.keys())}",
+            tags=["execution", "worktree_setup", "multi-repo"],
+        )
+
+    all_enriched: list[dict] = []
+    for repo_name, repo_issues in by_repo.items():
+        ws_repo = next((r for r in manifest.repos if r.repo_name == repo_name), None)
+        if ws_repo is None:
+            # Unknown repo — fall through without isolation
+            all_enriched.extend(repo_issues)
+            continue
+        git_init = ws_repo.git_init_result or {}
+        integration_branch = git_init.get("integration_branch", "")
+        if not integration_branch:
+            all_enriched.extend(repo_issues)
+            continue
+
+        repo_worktrees_dir = os.path.join(ws_repo.absolute_path, ".worktrees")
+        setup = await call_fn(
+            f"{node_id}.run_workspace_setup",
+            repo_path=ws_repo.absolute_path,
+            integration_branch=integration_branch,
+            issues=repo_issues,
+            worktrees_dir=repo_worktrees_dir,
+            artifacts_dir=dag_state.artifacts_dir,
+            level=dag_state.current_level,
+            model=config.git_model,
+            ai_provider=config.ai_provider,
+            build_id=build_id,
+        )
+
+        if not setup.get("success"):
+            all_enriched.extend(repo_issues)
+            continue
+
+        all_enriched.extend(
+            _enrich_issues_from_setup(repo_issues, setup, integration_branch)
+        )
+
+    if note_fn:
+        note_fn(
+            f"Worktree setup complete: {len(all_enriched)} issues enriched",
+            tags=["execution", "worktree_setup", "complete"],
+        )
+
+    return all_enriched
+
+
+def _enrich_issues_from_setup(
+    issues: list[dict],
+    setup: dict,
+    integration_branch: str,
+) -> list[dict]:
+    """Match worktree setup results back to issues."""
     worktree_map: dict[str, dict] = {}
     for w in setup.get("workspaces", []):
         raw_name = w["issue_name"]
@@ -102,23 +174,17 @@ async def _setup_worktrees(
             worktree_map[stripped] = w
 
     enriched = []
-    for issue in active_issues:
+    for issue in issues:
         ws = worktree_map.get(issue["name"])
         if ws:
             enriched.append({
                 **issue,
                 "worktree_path": ws["worktree_path"],
                 "branch_name": ws["branch_name"],
-                "integration_branch": dag_state.git_integration_branch,
+                "integration_branch": integration_branch,
             })
         else:
             enriched.append(issue)
-
-    if note_fn:
-        note_fn(
-            f"Worktree setup complete: {len(worktree_map)} worktrees",
-            tags=["execution", "worktree_setup", "complete"],
-        )
 
     return enriched
 
@@ -321,6 +387,12 @@ async def _run_integration_tests(
 ) -> dict | None:
     """Run integration tests after a merge if needed.
 
+    Single-repo path (workspace_manifest is None): runs integration tests in
+    dag_state.repo_path as before.
+
+    Multi-repo path: runs integration tests in the primary repo with
+    workspace_manifest context so the agent can verify cross-repo interactions.
+
     Returns the IntegrationTestResult dict, or None if skipped.
     """
     if not merge_result.get("needs_integration_test"):
@@ -358,6 +430,7 @@ async def _run_integration_tests(
             level=level_result.level_index,
             model=config.integration_tester_model,
             ai_provider=config.ai_provider,
+            workspace_manifest=dag_state.workspace_manifest,
         )
         if test_result.get("passed"):
             break
@@ -388,8 +461,13 @@ async def _cleanup_worktrees(
     level: int = 0,
     model: str = "sonnet",
     ai_provider: str = "claude",
+    completed_results: list | None = None,
 ) -> None:
     """Remove worktrees and clean up branches after merge.
+
+    Single-repo path (workspace_manifest is None): cleans up in dag_state.repo_path.
+    Multi-repo path: groups branches by repo_name from completed_results and
+    dispatches cleanup per repo.
 
     Retries once on failure to handle transient issues (locked worktrees, etc.).
     """
@@ -402,14 +480,56 @@ async def _cleanup_worktrees(
             tags=["execution", "worktree_cleanup", "start"],
         )
 
+    # --- Multi-repo path: group by repo and clean per-repo ---
+    if dag_state.workspace_manifest is not None and completed_results:
+        manifest = WorkspaceManifest(**dag_state.workspace_manifest)
+        by_repo: dict[str, list[str]] = {}
+        for r in completed_results:
+            repo = getattr(r, "repo_name", "") or manifest.primary_repo_name
+            if r.branch_name and r.branch_name in branches_to_clean:
+                by_repo.setdefault(repo, []).append(r.branch_name)
+
+        for repo_name, repo_branches in by_repo.items():
+            ws_repo = next((r for r in manifest.repos if r.repo_name == repo_name), None)
+            if ws_repo is None:
+                continue
+            repo_worktrees_dir = os.path.join(ws_repo.absolute_path, ".worktrees")
+            await _cleanup_single_repo(
+                call_fn, node_id, ws_repo.absolute_path, repo_worktrees_dir,
+                repo_branches, dag_state.artifacts_dir, level, model, ai_provider,
+                note_fn,
+            )
+        return
+
+    # --- Single-repo path: unchanged ---
+    await _cleanup_single_repo(
+        call_fn, node_id, dag_state.repo_path, dag_state.worktrees_dir,
+        branches_to_clean, dag_state.artifacts_dir, level, model, ai_provider,
+        note_fn,
+    )
+
+
+async def _cleanup_single_repo(
+    call_fn: Callable,
+    node_id: str,
+    repo_path: str,
+    worktrees_dir: str,
+    branches_to_clean: list[str],
+    artifacts_dir: str,
+    level: int,
+    model: str,
+    ai_provider: str,
+    note_fn: Callable | None = None,
+) -> None:
+    """Clean up worktrees for a single repo. Retries once on failure."""
     for attempt in range(2):  # up to 1 retry
         try:
             result = await call_fn(
                 f"{node_id}.run_workspace_cleanup",
-                repo_path=dag_state.repo_path,
-                worktrees_dir=dag_state.worktrees_dir,
+                repo_path=repo_path,
+                worktrees_dir=worktrees_dir,
                 branches_to_clean=branches_to_clean,
-                artifacts_dir=dag_state.artifacts_dir,
+                artifacts_dir=artifacts_dir,
                 level=level,
                 model=model,
                 ai_provider=ai_provider,
@@ -421,7 +541,6 @@ async def _cleanup_worktrees(
                         tags=["execution", "worktree_cleanup", "complete"],
                     )
                 return
-            # Cleanup agent reported failure
             if note_fn:
                 note_fn(
                     f"Worktree cleanup returned success=false (attempt {attempt + 1}/2), "
@@ -1373,6 +1492,7 @@ async def run_dag(
                     level=dag_state.current_level,
                     model=config.git_model,
                     ai_provider=config.ai_provider,
+                    completed_results=level_result.completed,
                 )
             )
         else:

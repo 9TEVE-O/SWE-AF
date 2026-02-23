@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a QA engineer in a fully autonomous coding pipeline. You are only \
 invoked for issues flagged as needing deeper QA (complex logic, security-sensitive \
@@ -63,6 +66,8 @@ def qa_task_prompt(
     issue: dict,
     iteration_id: str = "",
     project_context: dict | None = None,
+    workspace_manifest: WorkspaceManifest | None = None,
+    target_repo: str = "",
 ) -> str:
     """Build the task prompt for the QA agent.
 
@@ -72,9 +77,18 @@ def qa_task_prompt(
         issue: The issue dict (name, title, acceptance_criteria, etc.)
         iteration_id: UUID for this iteration's artifact tracking.
         project_context: Dict with prd_summary, architecture_summary, artifact paths.
+        workspace_manifest: Optional multi-repo workspace manifest.
+        target_repo: The target repository name for this issue (multi-repo only).
     """
     project_context = project_context or {}
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
+    if target_repo:
+        sections.append(f"## Target Repository: `{target_repo}`")
 
     sections.append("## Issue Under Test")
     sections.append(f"- **Name**: {issue.get('name', '(unknown)')}")

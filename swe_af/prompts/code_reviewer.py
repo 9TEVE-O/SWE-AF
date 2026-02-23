@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a senior engineer reviewing code in a fully autonomous coding pipeline. \
 A coder agent has just implemented changes for an issue. Your job is to review \
@@ -95,6 +98,8 @@ def code_reviewer_task_prompt(
     project_context: dict | None = None,
     qa_ran: bool = False,
     memory_context: dict | None = None,
+    workspace_manifest: WorkspaceManifest | None = None,
+    target_repo: str = "",
 ) -> str:
     """Build the task prompt for the code reviewer agent.
 
@@ -106,10 +111,19 @@ def code_reviewer_task_prompt(
         project_context: Dict with artifact paths.
         qa_ran: Whether QA ran for this issue (affects review depth).
         memory_context: Dict with bug_patterns from shared memory.
+        workspace_manifest: Optional multi-repo workspace manifest.
+        target_repo: The target repository name for this issue (multi-repo only).
     """
     project_context = project_context or {}
     memory_context = memory_context or {}
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
+    if target_repo:
+        sections.append(f"## Target Repository: `{target_repo}`")
 
     sections.append("## Issue Under Review")
     sections.append(f"- **Name**: {issue.get('name', '(unknown)')}")

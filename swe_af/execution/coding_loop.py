@@ -269,6 +269,8 @@ async def _run_default_path(
     timeout: int,
     issue_name: str,
     note_fn: Callable | None = None,
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> tuple[str, str, dict | None]:
     """Default path: reviewer only (2 LLM calls total including coder).
 
@@ -290,6 +292,8 @@ async def _run_default_path(
                 model=config.code_reviewer_model,
                 permission_mode=permission_mode,
                 ai_provider=config.ai_provider,
+                workspace_manifest=workspace_manifest,
+                target_repo=target_repo,
             ),
             timeout=timeout,
             label=f"review:{issue_name}:default",
@@ -339,6 +343,8 @@ async def _run_flagged_path(
     timeout: int,
     issue_name: str,
     note_fn: Callable | None = None,
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> tuple[str, str, dict | None, dict | None, dict | None]:
     """Flagged path: QA + reviewer parallel → synthesizer (4 LLM calls).
 
@@ -359,6 +365,8 @@ async def _run_flagged_path(
                 model=config.qa_model,
                 permission_mode=permission_mode,
                 ai_provider=config.ai_provider,
+                workspace_manifest=workspace_manifest,
+                target_repo=target_repo,
             ),
             timeout=timeout,
             label=f"qa:{issue_name}:iter{iteration}",
@@ -377,6 +385,8 @@ async def _run_flagged_path(
                 model=config.code_reviewer_model,
                 permission_mode=permission_mode,
                 ai_provider=config.ai_provider,
+                workspace_manifest=workspace_manifest,
+                target_repo=target_repo,
             ),
             timeout=timeout,
             label=f"review:{issue_name}:iter{iteration}",
@@ -436,6 +446,7 @@ async def _run_flagged_path(
                 model=config.qa_synthesizer_model,
                 permission_mode=permission_mode,
                 ai_provider=config.ai_provider,
+                workspace_manifest=workspace_manifest,
             ),
             timeout=timeout,
             label=f"synthesizer:{issue_name}:iter{iteration}",
@@ -499,6 +510,10 @@ async def run_coding_loop(
     max_iterations = config.max_coding_iterations
     timeout = config.agent_timeout_seconds
     permission_mode = ""  # inherits from agent config
+
+    # Multi-repo context (None for single-repo builds)
+    target_repo = issue.get("target_repo", "")
+    ws_manifest_dict = dag_state.workspace_manifest  # dict | None
 
     # Extract guidance — determines execution path
     guidance = issue.get("guidance") or {}
@@ -566,6 +581,8 @@ async def run_coding_loop(
                     model=config.coder_model,
                     permission_mode=permission_mode,
                     ai_provider=config.ai_provider,
+                    workspace_manifest=ws_manifest_dict,
+                    target_repo=target_repo,
                 ),
                 timeout=timeout,
                 label=f"coder:{issue_name}:iter{iteration}",
@@ -612,6 +629,8 @@ async def run_coding_loop(
                 timeout=timeout,
                 issue_name=issue_name,
                 note_fn=note_fn,
+                workspace_manifest=ws_manifest_dict,
+                target_repo=target_repo,
             )
             _save_artifact(dag_state.artifacts_dir, iteration_id, "qa", qa_result)
             _save_artifact(dag_state.artifacts_dir, iteration_id, "review", review_result)
@@ -634,6 +653,8 @@ async def run_coding_loop(
                 timeout=timeout,
                 issue_name=issue_name,
                 note_fn=note_fn,
+                workspace_manifest=ws_manifest_dict,
+                target_repo=target_repo,
             )
             qa_result = None
             synthesis_result = None

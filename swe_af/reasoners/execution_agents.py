@@ -68,6 +68,14 @@ from swe_af.prompts.workspace import workspace_cleanup_task_prompt, workspace_se
 from . import router
 
 
+def _maybe_workspace_manifest(raw: dict | None):
+    """Deserialize workspace_manifest dict to WorkspaceManifest, or return None."""
+    if raw is None:
+        return None
+    from swe_af.execution.schemas import WorkspaceManifest
+    return WorkspaceManifest(**raw)
+
+
 # ---------------------------------------------------------------------------
 # Helper for the replanner: reconstruct DAGState from dict
 # ---------------------------------------------------------------------------
@@ -751,6 +759,7 @@ async def run_integration_tester(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run integration tests on merged code to verify cross-feature interactions.
 
@@ -764,6 +773,8 @@ async def run_integration_tester(
         tags=["integration_tester", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = integration_tester_task_prompt(
         repo_path=repo_path,
         integration_branch=integration_branch,
@@ -771,6 +782,7 @@ async def run_integration_tester(
         prd_summary=prd_summary,
         architecture_summary=architecture_summary,
         conflict_resolutions=conflict_resolutions,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -892,6 +904,8 @@ async def run_coder(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Implement an issue: write code, tests, and commit.
 
@@ -909,6 +923,8 @@ async def run_coder(
         tags=["coder", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = coder_task_prompt(
         issue=issue,
         worktree_path=worktree_path,
@@ -916,6 +932,8 @@ async def run_coder(
         iteration=iteration,
         project_context=project_context,
         memory_context=memory_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -971,6 +989,8 @@ async def run_qa(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Review and augment tests, then run the test suite.
 
@@ -987,12 +1007,16 @@ async def run_qa(
         tags=["qa", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = qa_task_prompt(
         worktree_path=worktree_path,
         coder_result=coder_result,
         issue=issue,
         iteration_id=iteration_id,
         project_context=project_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1047,6 +1071,8 @@ async def run_code_reviewer(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Review code quality, security, and requirements adherence.
 
@@ -1065,6 +1091,8 @@ async def run_code_reviewer(
         tags=["code_reviewer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = code_reviewer_task_prompt(
         worktree_path=worktree_path,
         coder_result=coder_result,
@@ -1073,6 +1101,8 @@ async def run_code_reviewer(
         project_context=project_context,
         qa_ran=qa_ran,
         memory_context=memory_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1127,6 +1157,7 @@ async def run_qa_synthesizer(
     model: str = "haiku",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Merge QA and review feedback, decide fix/approve/block.
 
@@ -1142,6 +1173,8 @@ async def run_qa_synthesizer(
         tags=["qa_synthesizer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = qa_synthesizer_task_prompt(
         qa_result=qa_result,
         review_result=review_result,
@@ -1149,6 +1182,7 @@ async def run_qa_synthesizer(
         iteration_id=iteration_id,
         worktree_path=worktree_path,
         issue_summary=issue_summary,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
