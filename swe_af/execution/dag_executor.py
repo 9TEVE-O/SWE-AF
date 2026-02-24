@@ -118,12 +118,25 @@ async def _setup_worktrees(
     for repo_name, repo_issues in by_repo.items():
         ws_repo = next((r for r in manifest.repos if r.repo_name == repo_name), None)
         if ws_repo is None:
-            # Unknown repo — fall through without isolation
+            issue_names = [i.get("name", "?") for i in repo_issues]
+            if note_fn:
+                note_fn(
+                    f"WARNING: target_repo '{repo_name}' not found in workspace manifest. "
+                    f"Issues {issue_names} will run without worktree isolation.",
+                    tags=["execution", "worktree_setup", "warning"],
+                )
             all_enriched.extend(repo_issues)
             continue
         git_init = ws_repo.git_init_result or {}
         integration_branch = git_init.get("integration_branch", "")
         if not integration_branch:
+            issue_names = [i.get("name", "?") for i in repo_issues]
+            if note_fn:
+                note_fn(
+                    f"WARNING: repo '{repo_name}' has no integration branch (git_init incomplete). "
+                    f"Issues {issue_names} will run without worktree isolation.",
+                    tags=["execution", "worktree_setup", "warning"],
+                )
             all_enriched.extend(repo_issues)
             continue
 
@@ -408,19 +421,35 @@ async def _run_integration_tests(
                 "issue_name": r.issue_name,
                 "result_summary": r.result_summary,
                 "files_changed": r.files_changed,
+                "repo_name": r.repo_name or "",
             })
 
     if note_fn:
+        repos_touched = {b["repo_name"] for b in merged_branches if b["repo_name"]}
+        label = f" (repos: {repos_touched})" if repos_touched else ""
         note_fn(
-            "Running integration tests",
+            f"Running integration tests{label}",
             tags=["execution", "integration_test", "start"],
         )
+
+    # In multi-repo mode, determine the best repo_path for integration tests.
+    # If all merged branches belong to a single non-primary repo, run tests there.
+    # Otherwise, run in the primary repo (which has workspace_manifest context).
+    integration_test_repo_path = dag_state.repo_path
+    if dag_state.workspace_manifest:
+        repos_with_merges = {b["repo_name"] for b in merged_branches if b["repo_name"]}
+        if len(repos_with_merges) == 1:
+            repo_name = next(iter(repos_with_merges))
+            manifest = WorkspaceManifest(**dag_state.workspace_manifest)
+            ws_repo = next((r for r in manifest.repos if r.repo_name == repo_name), None)
+            if ws_repo and ws_repo.absolute_path:
+                integration_test_repo_path = ws_repo.absolute_path
 
     test_result = None
     for attempt in range(config.max_integration_test_retries + 1):
         test_result = await call_fn(
             f"{node_id}.run_integration_tester",
-            repo_path=dag_state.repo_path,
+            repo_path=integration_test_repo_path,
             integration_branch=dag_state.git_integration_branch,
             merged_branches=merged_branches,
             prd_summary=dag_state.prd_summary,
@@ -1452,6 +1481,13 @@ async def run_dag(
                 dag_state, active_issues, call_fn, node_id, config, note_fn,
                 build_id=dag_state.build_id,
             )
+            # Persist worktree_path/branch_name back to dag_state.all_issues
+            # so checkpoints contain the enriched data (resume-safe).
+            enriched_by_name = {i["name"]: i for i in active_issues}
+            for i, issue in enumerate(dag_state.all_issues):
+                enriched = enriched_by_name.get(issue["name"])
+                if enriched and "worktree_path" in enriched:
+                    dag_state.all_issues[i] = enriched
 
         # Track in-flight issues and checkpoint before execution (Bug 4 fix)
         dag_state.in_flight_issues = [i["name"] for i in active_issues]
