@@ -331,6 +331,7 @@ async def build(
         issue_writer_model=resolved["issue_writer_model"],
         permission_mode=cfg.permission_mode,
         ai_provider=cfg.ai_provider,
+        workspace_manifest=manifest.model_dump() if manifest else None,
     )
 
     # Git init with retry logic
@@ -432,6 +433,12 @@ async def build(
         workspace_manifest=manifest.model_dump() if manifest else None,
     ), "execute")
 
+    # Refresh manifest with git_init_result populated by _init_all_repos() in
+    # the DAG executor.  Must happen before the verify/fix loop which can
+    # overwrite dag_result with fix-execution results (no workspace_manifest).
+    if manifest and dag_result.get("workspace_manifest"):
+        manifest = WorkspaceManifest(**dag_result["workspace_manifest"])
+
     # 3. VERIFY
     verification = None
     for cycle in range(cfg.max_verify_fix_cycles + 1):
@@ -447,6 +454,7 @@ async def build(
             model=resolved["verifier_model"],
             permission_mode=cfg.permission_mode,
             ai_provider=cfg.ai_provider,
+            workspace_manifest=manifest.model_dump() if manifest else None,
         ), "run_verifier")
 
         if verification.get("passed", False) or cycle >= cfg.max_verify_fix_cycles:
@@ -478,6 +486,7 @@ async def build(
             model=resolved["verifier_model"],
             permission_mode=cfg.permission_mode,
             ai_provider=cfg.ai_provider,
+            workspace_manifest=manifest.model_dump() if manifest else None,
         ), "generate_fix_issues")
 
         fix_issues = fix_result.get("fix_issues", [])
@@ -510,6 +519,7 @@ async def build(
                 repo_path=repo_path,
                 config=exec_config,
                 git_config=git_config,
+                workspace_manifest=manifest.model_dump() if manifest else None,
             ), "execute_fixes")
             continue  # Re-verify
         else:
@@ -545,31 +555,64 @@ async def build(
                 pass
 
     # 3b. FINALIZE — clean up repo artifacts before PR
-    app.note("Phase 3b: Repo finalization", tags=["build", "finalize"])
-    try:
-        finalize_result = _unwrap(await app.call(
-            f"{NODE_ID}.run_repo_finalize",
-            repo_path=repo_path,
-            artifacts_dir=plan_result.get("artifacts_dir", artifacts_dir),
-            model=resolved["git_model"],
-            permission_mode=cfg.permission_mode,
-            ai_provider=cfg.ai_provider,
-        ), "run_repo_finalize")
-        if finalize_result.get("success"):
-            app.note(
-                f"Repo finalized: {finalize_result.get('summary', '')}",
-                tags=["build", "finalize", "complete"],
-            )
-        else:
-            app.note(
-                f"Repo finalize incomplete: {finalize_result.get('summary', '')}",
-                tags=["build", "finalize", "warning"],
-            )
-    except Exception as e:
+    if manifest and len(manifest.repos) > 1:
+        # Multi-repo: finalize each repo individually
         app.note(
-            f"Repo finalize failed (non-blocking): {e}",
-            tags=["build", "finalize", "error"],
+            f"Phase 3b: Multi-repo finalization ({len(manifest.repos)} repos)",
+            tags=["build", "finalize", "multi-repo"],
         )
+        for ws_repo in manifest.repos:
+            try:
+                finalize_result = _unwrap(await app.call(
+                    f"{NODE_ID}.run_repo_finalize",
+                    repo_path=ws_repo.absolute_path,
+                    artifacts_dir=plan_result.get("artifacts_dir", artifacts_dir),
+                    model=resolved["git_model"],
+                    permission_mode=cfg.permission_mode,
+                    ai_provider=cfg.ai_provider,
+                ), f"run_repo_finalize ({ws_repo.repo_name})")
+                if finalize_result.get("success"):
+                    app.note(
+                        f"Repo finalized ({ws_repo.repo_name}): {finalize_result.get('summary', '')}",
+                        tags=["build", "finalize", "complete"],
+                    )
+                else:
+                    app.note(
+                        f"Repo finalize incomplete ({ws_repo.repo_name}): {finalize_result.get('summary', '')}",
+                        tags=["build", "finalize", "warning"],
+                    )
+            except Exception as e:
+                app.note(
+                    f"Repo finalize failed for {ws_repo.repo_name} (non-blocking): {e}",
+                    tags=["build", "finalize", "error"],
+                )
+    else:
+        # Single-repo: existing finalize logic
+        app.note("Phase 3b: Repo finalization", tags=["build", "finalize"])
+        try:
+            finalize_result = _unwrap(await app.call(
+                f"{NODE_ID}.run_repo_finalize",
+                repo_path=repo_path,
+                artifacts_dir=plan_result.get("artifacts_dir", artifacts_dir),
+                model=resolved["git_model"],
+                permission_mode=cfg.permission_mode,
+                ai_provider=cfg.ai_provider,
+            ), "run_repo_finalize")
+            if finalize_result.get("success"):
+                app.note(
+                    f"Repo finalized: {finalize_result.get('summary', '')}",
+                    tags=["build", "finalize", "complete"],
+                )
+            else:
+                app.note(
+                    f"Repo finalize incomplete: {finalize_result.get('summary', '')}",
+                    tags=["build", "finalize", "warning"],
+                )
+        except Exception as e:
+            app.note(
+                f"Repo finalize failed (non-blocking): {e}",
+                tags=["build", "finalize", "error"],
+            )
 
     # 4. PUSH & DRAFT PR (if repo has a remote and PR creation is enabled)
     pr_results: list[RepoPRResult] = []
@@ -724,6 +767,18 @@ async def build(
             except Exception as e:
                 app.note(f"PR creation failed: {e}", tags=["build", "github_pr", "error"])
 
+    # 5. WORKSPACE CLEANUP (non-blocking)
+    if manifest and manifest.workspace_root:
+        try:
+            import shutil
+            shutil.rmtree(manifest.workspace_root, ignore_errors=True)
+            app.note(
+                f"Workspace cleaned up: {manifest.workspace_root}",
+                tags=["build", "cleanup"],
+            )
+        except Exception:
+            pass  # non-blocking
+
     return BuildResult(
         plan_result=plan_result,
         dag_state=dag_result,
@@ -749,6 +804,7 @@ async def plan(
     issue_writer_model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run the full planning pipeline.
 
@@ -767,6 +823,7 @@ async def plan(
         model=pm_model,
         permission_mode=permission_mode,
         ai_provider=ai_provider,
+        workspace_manifest=workspace_manifest,
     ), "run_product_manager")
 
     # 2. Architect designs the solution
@@ -779,6 +836,7 @@ async def plan(
         model=architect_model,
         permission_mode=permission_mode,
         ai_provider=ai_provider,
+        workspace_manifest=workspace_manifest,
     ), "run_architect")
 
     # 3. Tech Lead review loop
@@ -794,6 +852,7 @@ async def plan(
             model=tech_lead_model,
             permission_mode=permission_mode,
             ai_provider=ai_provider,
+            workspace_manifest=workspace_manifest,
         ), "run_tech_lead")
         if review["approved"]:
             break
@@ -808,6 +867,7 @@ async def plan(
                 model=architect_model,
                 permission_mode=permission_mode,
                 ai_provider=ai_provider,
+                workspace_manifest=workspace_manifest,
             ), "run_architect (revision)")
 
     # Force-approve if we exhausted iterations
@@ -832,6 +892,7 @@ async def plan(
         model=sprint_planner_model,
         permission_mode=permission_mode,
         ai_provider=ai_provider,
+        workspace_manifest=workspace_manifest,
     ), "run_sprint_planner")
     issues = sprint_result["issues"]
     rationale = sprint_result["rationale"]
@@ -876,6 +937,7 @@ async def plan(
             model=issue_writer_model,
             permission_mode=permission_mode,
             ai_provider=ai_provider,
+            workspace_manifest=workspace_manifest,
         ))
     writer_results = await asyncio.gather(*writer_tasks, return_exceptions=True)
 

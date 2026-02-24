@@ -165,6 +165,7 @@ async def run_product_manager(
     max_turns: int = DEFAULT_AGENT_MAX_TURNS,
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run the product manager agent to scope a goal into a PRD."""
     router.note("PM starting", tags=["pm", "start"])
@@ -182,12 +183,21 @@ async def run_product_manager(
         permission_mode=permission_mode or None,
     ))
 
-    from swe_af.prompts.product_manager import product_manager_prompts  # noqa: PLC0415
-    system_prompt, task_prompt = product_manager_prompts(
+    from swe_af.prompts.product_manager import product_manager_prompts, pm_task_prompt  # noqa: PLC0415
+    from swe_af.execution.schemas import WorkspaceManifest  # noqa: PLC0415
+    system_prompt, _ = product_manager_prompts(
         goal=goal,
         repo_path=repo_path,
         prd_path=paths["prd"],
         additional_context=additional_context,
+    )
+    ws_manifest = WorkspaceManifest(**workspace_manifest) if workspace_manifest else None
+    task_prompt = pm_task_prompt(
+        goal=goal,
+        repo_path=repo_path,
+        prd_path=paths["prd"],
+        additional_context=additional_context,
+        workspace_manifest=ws_manifest,
     )
     response = await ai.run(
         task_prompt,
@@ -212,6 +222,7 @@ async def run_architect(
     max_turns: int = DEFAULT_AGENT_MAX_TURNS,
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run the architect agent to produce a technical architecture."""
     router.note("Architect starting", tags=["architect", "start"])
@@ -230,13 +241,23 @@ async def run_architect(
     ))
 
     prd_obj = PRD(**prd)
-    from swe_af.prompts.architect import architect_prompts  # noqa: PLC0415
-    system_prompt, task_prompt = architect_prompts(
+    from swe_af.prompts.architect import architect_prompts, architect_task_prompt  # noqa: PLC0415
+    from swe_af.execution.schemas import WorkspaceManifest  # noqa: PLC0415
+    system_prompt, _ = architect_prompts(
         prd=prd_obj,
         repo_path=repo_path,
         prd_path=paths["prd"],
         architecture_path=paths["architecture"],
         feedback=feedback or None,
+    )
+    ws_manifest = WorkspaceManifest(**workspace_manifest) if workspace_manifest else None
+    task_prompt = architect_task_prompt(
+        prd=prd_obj,
+        repo_path=repo_path,
+        prd_path=paths["prd"],
+        architecture_path=paths["architecture"],
+        feedback=feedback or None,
+        workspace_manifest=ws_manifest,
     )
     response = await ai.run(
         task_prompt,
@@ -261,6 +282,7 @@ async def run_tech_lead(
     max_turns: int = DEFAULT_AGENT_MAX_TURNS,
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run the tech lead agent to review the architecture against the PRD."""
     router.note("Tech Lead starting", tags=["tech_lead", "start"])
@@ -278,11 +300,19 @@ async def run_tech_lead(
         permission_mode=permission_mode or None,
     ))
 
-    from swe_af.prompts.tech_lead import tech_lead_prompts  # noqa: PLC0415
-    system_prompt, task_prompt = tech_lead_prompts(
+    from swe_af.prompts.tech_lead import tech_lead_prompts, tech_lead_task_prompt  # noqa: PLC0415
+    from swe_af.execution.schemas import WorkspaceManifest  # noqa: PLC0415
+    system_prompt, _ = tech_lead_prompts(
         prd_path=paths["prd"],
         architecture_path=paths["architecture"],
         revision_number=revision_number,
+    )
+    ws_manifest = WorkspaceManifest(**workspace_manifest) if workspace_manifest else None
+    task_prompt = tech_lead_task_prompt(
+        prd_path=paths["prd"],
+        architecture_path=paths["architecture"],
+        revision_number=revision_number,
+        workspace_manifest=ws_manifest,
     )
     response = await ai.run(
         task_prompt,
@@ -312,6 +342,7 @@ async def run_sprint_planner(
     max_turns: int = DEFAULT_AGENT_MAX_TURNS,
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run the sprint planner to decompose work into executable issues.
 
@@ -338,10 +369,21 @@ async def run_sprint_planner(
 
     prd_obj = PRD(**prd)
     arch_obj = Architecture(**architecture)
-    from swe_af.prompts.sprint_planner import sprint_planner_prompts  # noqa: PLC0415
-    system_prompt, task_prompt = sprint_planner_prompts(
+    from swe_af.prompts.sprint_planner import sprint_planner_prompts, sprint_planner_task_prompt  # noqa: PLC0415
+    from swe_af.execution.schemas import WorkspaceManifest  # noqa: PLC0415
+    system_prompt, _ = sprint_planner_prompts(
         prd=prd_obj,
         architecture=arch_obj,
+        repo_path=repo_path,
+        prd_path=paths["prd"],
+        architecture_path=paths["architecture"],
+    )
+    ws_manifest = WorkspaceManifest(**workspace_manifest) if workspace_manifest else None
+    task_prompt = sprint_planner_task_prompt(
+        goal=prd_obj.validated_description,
+        prd=prd_obj,
+        architecture=arch_obj,
+        workspace_manifest=ws_manifest,
         repo_path=repo_path,
         prd_path=paths["prd"],
         architecture_path=paths["architecture"],

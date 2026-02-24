@@ -863,6 +863,7 @@ async def _execute_single_issue(
                     worktree_path=current_issue.get("worktree_path", dag_state.repo_path),
                     model=config.issue_advisor_model,
                     ai_provider=config.ai_provider,
+                    workspace_manifest=dag_state.workspace_manifest,
                 ),
                 timeout=config.agent_timeout_seconds,
                 label=f"issue_advisor:{issue_name}:{advisor_round + 1}",
@@ -1083,6 +1084,7 @@ async def _run_execute_fn(
                         artifacts_dir=dag_state.artifacts_dir,
                         model=config.retry_advisor_model,
                         ai_provider=config.ai_provider,
+                        workspace_manifest=dag_state.workspace_manifest,
                     )
                     if not advice.get("should_retry", False):
                         break

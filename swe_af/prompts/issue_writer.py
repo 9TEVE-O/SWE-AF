@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a technical writer who specializes in writing lean, focused task
 specifications for autonomous coding agents. You turn structured issue stubs
@@ -112,6 +115,7 @@ def issue_writer_task_prompt(
     prd_path: str = "",
     architecture_path: str = "",
     sibling_issues: list[dict] | None = None,
+    workspace_manifest: WorkspaceManifest | None = None,
 ) -> str:
     """Build the task prompt for the issue writer agent.
 
@@ -123,8 +127,14 @@ def issue_writer_task_prompt(
         prd_path: Path to the full PRD document for the agent to read.
         architecture_path: Path to the architecture document for the agent to read.
         sibling_issues: List of sibling issue stubs for cross-reference context.
+        workspace_manifest: Optional multi-repo workspace manifest.
     """
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
 
     sections.append("## Issue to Write")
     sections.append(f"- **Name**: {issue.get('name', '(unknown)')}")

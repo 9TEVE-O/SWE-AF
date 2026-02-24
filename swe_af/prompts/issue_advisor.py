@@ -7,6 +7,9 @@ split, accept with debt, or escalate to the outer replanner).
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a senior technical lead analyzing a failed coding attempt in an
 autonomous software engineering pipeline. An inner coding loop (coder → QA →
@@ -95,6 +98,7 @@ def issue_advisor_task_prompt(
     max_advisor_invocations: int = 2,
     previous_adaptations: list[dict] | None = None,
     worktree_path: str = "",
+    workspace_manifest: WorkspaceManifest | None = None,
 ) -> str:
     """Build the task prompt for the Issue Advisor agent.
 
@@ -108,8 +112,14 @@ def issue_advisor_task_prompt(
         max_advisor_invocations: Total budget.
         previous_adaptations: Any adaptations made in prior advisor rounds.
         worktree_path: Path to the issue's git worktree.
+        workspace_manifest: Optional multi-repo workspace manifest.
     """
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
 
     # Budget awareness
     remaining = max_advisor_invocations - advisor_invocation

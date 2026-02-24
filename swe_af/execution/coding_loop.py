@@ -447,6 +447,7 @@ async def _run_flagged_path(
                 permission_mode=permission_mode,
                 ai_provider=config.ai_provider,
                 workspace_manifest=workspace_manifest,
+                target_repo=target_repo,
             ),
             timeout=timeout,
             label=f"synthesizer:{issue_name}:iter{iteration}",

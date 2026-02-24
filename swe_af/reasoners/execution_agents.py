@@ -111,6 +111,7 @@ async def run_retry_advisor(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Diagnose a coding agent failure and advise whether to retry.
 
@@ -122,6 +123,8 @@ async def run_retry_advisor(
         tags=["retry_advisor", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = retry_advisor_task_prompt(
         issue=issue,
         error_message=error_message,
@@ -131,6 +134,7 @@ async def run_retry_advisor(
         architecture_summary=architecture_summary,
         prd_path=prd_path,
         architecture_path=architecture_path,
+        workspace_manifest=ws_manifest,
     )
 
     issue_name = issue.get("name", "unknown")
@@ -190,6 +194,7 @@ async def run_issue_advisor(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Analyze a coding loop failure and decide how to adapt.
 
@@ -202,6 +207,8 @@ async def run_issue_advisor(
         tags=["issue_advisor", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = issue_advisor_task_prompt(
         issue=issue,
         original_issue=original_issue,
@@ -212,6 +219,7 @@ async def run_issue_advisor(
         max_advisor_invocations=max_advisor_invocations,
         previous_adaptations=previous_adaptations,
         worktree_path=worktree_path,
+        workspace_manifest=ws_manifest,
     )
 
     artifacts_dir = dag_state_summary.get("artifacts_dir", "")
@@ -379,6 +387,7 @@ async def run_issue_writer(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Write a lean issue-*.md file for a new or updated issue.
 
@@ -396,6 +405,8 @@ async def run_issue_writer(
         tags=["issue_writer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = issue_writer_task_prompt(
         issue=issue,
         prd_summary=prd_summary,
@@ -404,6 +415,7 @@ async def run_issue_writer(
         prd_path=prd_path,
         architecture_path=architecture_path,
         sibling_issues=sibling_issues,
+        workspace_manifest=ws_manifest,
     )
 
     class IssueWriterOutput(BaseModel):
@@ -458,6 +470,7 @@ async def run_verifier(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run final acceptance verification against the PRD.
 
@@ -468,12 +481,15 @@ async def run_verifier(
 
     router.note("Verifier starting", tags=["verifier", "start"])
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = verifier_task_prompt(
         prd=prd,
         artifacts_dir=artifacts_dir,
         completed_issues=completed_issues,
         failed_issues=failed_issues,
         skipped_issues=skipped_issues,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1158,6 +1174,7 @@ async def run_qa_synthesizer(
     permission_mode: str = "",
     ai_provider: str = "claude",
     workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Merge QA and review feedback, decide fix/approve/block.
 
@@ -1256,6 +1273,7 @@ async def generate_fix_issues(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Generate targeted fix issues from failed verification criteria.
 
@@ -1275,6 +1293,18 @@ async def generate_fix_issues(
         dag_state_summary=dag_state,
         prd=prd,
     )
+
+    # If multi-repo, ensure generated fix issues get target_repo set
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+    if ws_manifest and len(ws_manifest.repos) > 1:
+        task_prompt += (
+            "\n\n## Multi-Repo Context\n"
+            "This workspace spans multiple repositories. For each fix issue you generate, "
+            "include a `target_repo` field specifying which repository the fix should be "
+            "applied to. Available repos:\n"
+        )
+        for repo in ws_manifest.repos:
+            task_prompt += f"- **{repo.repo_name}** (role: {repo.role}): `{repo.absolute_path}`\n"
 
     class FixGeneratorOutput(BaseModel):
         fix_issues: list[dict] = []

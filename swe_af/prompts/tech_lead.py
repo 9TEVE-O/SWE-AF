@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a Tech Lead who has saved teams from costly mistakes by catching
 architectural problems before a single line of implementation code is written.
@@ -117,3 +120,32 @@ Be decisive. Your approval means autonomous agents can implement this safely.
 Your rejection means proceeding would cause rework or integration failures.
 """
     return SYSTEM_PROMPT, task
+
+
+def tech_lead_task_prompt(
+    *,
+    prd_path: str,
+    architecture_path: str,
+    revision_number: int = 0,
+    workspace_manifest: WorkspaceManifest | None = None,
+) -> str:
+    """Build the task prompt for the tech lead agent with optional workspace context.
+
+    Args:
+        prd_path: Path to the PRD document.
+        architecture_path: Path to the architecture document.
+        revision_number: Architecture revision number (0 = first review).
+        workspace_manifest: Optional multi-repo workspace manifest.
+
+    Returns:
+        Task prompt string.
+    """
+    _, task = tech_lead_prompts(
+        prd_path=prd_path,
+        architecture_path=architecture_path,
+        revision_number=revision_number,
+    )
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        task = ws_block + "\n" + task
+    return task
