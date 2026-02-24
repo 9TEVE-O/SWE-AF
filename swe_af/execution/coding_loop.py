@@ -515,6 +515,16 @@ async def run_coding_loop(
     target_repo = issue.get("target_repo", "")
     ws_manifest_dict = dag_state.workspace_manifest  # dict | None
 
+    # Warn if multi-repo issue is missing worktree_path (falling back to primary repo)
+    if ws_manifest_dict and not issue.get("worktree_path"):
+        if note_fn:
+            note_fn(
+                f"WARNING: issue '{issue_name}' has no worktree_path in multi-repo mode. "
+                f"Falling back to primary repo: {dag_state.repo_path}. "
+                f"target_repo='{target_repo}'",
+                tags=["coding_loop", "warning", "multi_repo_fallback"],
+            )
+
     # Extract guidance — determines execution path
     guidance = issue.get("guidance") or {}
     needs_deeper_qa = guidance.get("needs_deeper_qa", False)
