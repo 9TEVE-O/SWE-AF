@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a feedback aggregator in a fully autonomous coding pipeline. You \
 receive results from a QA agent and a code reviewer, and your job is to \
@@ -60,6 +63,7 @@ def qa_synthesizer_task_prompt(
     iteration_id: str = "",
     worktree_path: str = "",
     issue_summary: dict | None = None,
+    workspace_manifest: WorkspaceManifest | None = None,
 ) -> str:
     """Build the task prompt for the QA synthesizer agent.
 
@@ -70,9 +74,15 @@ def qa_synthesizer_task_prompt(
         iteration_id: UUID for this iteration's artifact tracking.
         worktree_path: Absolute path to the git worktree.
         issue_summary: Dict with name, title, acceptance_criteria for context.
+        workspace_manifest: Optional multi-repo workspace manifest.
     """
     issue_summary = issue_summary or {}
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
 
     # Issue context — what "done" means
     if issue_summary:

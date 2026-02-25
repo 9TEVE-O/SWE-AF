@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from swe_af.execution.schemas import WorkspaceManifest
+from swe_af.prompts._utils import workspace_context_block
+
 SYSTEM_PROMPT = """\
 You are a senior debugging specialist who has triaged thousands of CI and agent
 failures. An autonomous coding agent attempted to implement a software issue and
@@ -72,6 +75,7 @@ def retry_advisor_task_prompt(
     architecture_summary: str = "",
     prd_path: str = "",
     architecture_path: str = "",
+    workspace_manifest: WorkspaceManifest | None = None,
 ) -> str:
     """Build the task prompt for the retry advisor agent.
 
@@ -84,8 +88,14 @@ def retry_advisor_task_prompt(
         architecture_summary: Architecture summary for design context.
         prd_path: Path to full PRD file.
         architecture_path: Path to full architecture file.
+        workspace_manifest: Optional multi-repo workspace manifest.
     """
     sections: list[str] = []
+
+    # Inject multi-repo workspace context if present
+    ws_block = workspace_context_block(workspace_manifest)
+    if ws_block:
+        sections.append(ws_block)
 
     sections.append("## Failed Issue")
     sections.append(f"- **Name**: {issue.get('name', '(unknown)')}")

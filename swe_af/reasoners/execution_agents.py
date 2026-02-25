@@ -68,6 +68,14 @@ from swe_af.prompts.workspace import workspace_cleanup_task_prompt, workspace_se
 from . import router
 
 
+def _maybe_workspace_manifest(raw: dict | None):
+    """Deserialize workspace_manifest dict to WorkspaceManifest, or return None."""
+    if raw is None:
+        return None
+    from swe_af.execution.schemas import WorkspaceManifest
+    return WorkspaceManifest(**raw)
+
+
 # ---------------------------------------------------------------------------
 # Helper for the replanner: reconstruct DAGState from dict
 # ---------------------------------------------------------------------------
@@ -103,6 +111,7 @@ async def run_retry_advisor(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Diagnose a coding agent failure and advise whether to retry.
 
@@ -114,6 +123,8 @@ async def run_retry_advisor(
         tags=["retry_advisor", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = retry_advisor_task_prompt(
         issue=issue,
         error_message=error_message,
@@ -123,6 +134,7 @@ async def run_retry_advisor(
         architecture_summary=architecture_summary,
         prd_path=prd_path,
         architecture_path=architecture_path,
+        workspace_manifest=ws_manifest,
     )
 
     issue_name = issue.get("name", "unknown")
@@ -182,6 +194,7 @@ async def run_issue_advisor(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Analyze a coding loop failure and decide how to adapt.
 
@@ -194,6 +207,8 @@ async def run_issue_advisor(
         tags=["issue_advisor", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = issue_advisor_task_prompt(
         issue=issue,
         original_issue=original_issue,
@@ -204,6 +219,7 @@ async def run_issue_advisor(
         max_advisor_invocations=max_advisor_invocations,
         previous_adaptations=previous_adaptations,
         worktree_path=worktree_path,
+        workspace_manifest=ws_manifest,
     )
 
     artifacts_dir = dag_state_summary.get("artifacts_dir", "")
@@ -371,6 +387,7 @@ async def run_issue_writer(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Write a lean issue-*.md file for a new or updated issue.
 
@@ -388,6 +405,8 @@ async def run_issue_writer(
         tags=["issue_writer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = issue_writer_task_prompt(
         issue=issue,
         prd_summary=prd_summary,
@@ -396,6 +415,7 @@ async def run_issue_writer(
         prd_path=prd_path,
         architecture_path=architecture_path,
         sibling_issues=sibling_issues,
+        workspace_manifest=ws_manifest,
     )
 
     class IssueWriterOutput(BaseModel):
@@ -450,6 +470,7 @@ async def run_verifier(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run final acceptance verification against the PRD.
 
@@ -460,12 +481,15 @@ async def run_verifier(
 
     router.note("Verifier starting", tags=["verifier", "start"])
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = verifier_task_prompt(
         prd=prd,
         artifacts_dir=artifacts_dir,
         completed_issues=completed_issues,
         failed_issues=failed_issues,
         skipped_issues=skipped_issues,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -751,6 +775,7 @@ async def run_integration_tester(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Run integration tests on merged code to verify cross-feature interactions.
 
@@ -764,6 +789,8 @@ async def run_integration_tester(
         tags=["integration_tester", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = integration_tester_task_prompt(
         repo_path=repo_path,
         integration_branch=integration_branch,
@@ -771,6 +798,7 @@ async def run_integration_tester(
         prd_summary=prd_summary,
         architecture_summary=architecture_summary,
         conflict_resolutions=conflict_resolutions,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -892,6 +920,8 @@ async def run_coder(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Implement an issue: write code, tests, and commit.
 
@@ -909,6 +939,8 @@ async def run_coder(
         tags=["coder", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = coder_task_prompt(
         issue=issue,
         worktree_path=worktree_path,
@@ -916,6 +948,8 @@ async def run_coder(
         iteration=iteration,
         project_context=project_context,
         memory_context=memory_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -971,6 +1005,8 @@ async def run_qa(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Review and augment tests, then run the test suite.
 
@@ -987,12 +1023,16 @@ async def run_qa(
         tags=["qa", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = qa_task_prompt(
         worktree_path=worktree_path,
         coder_result=coder_result,
         issue=issue,
         iteration_id=iteration_id,
         project_context=project_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1047,6 +1087,8 @@ async def run_code_reviewer(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Review code quality, security, and requirements adherence.
 
@@ -1065,6 +1107,8 @@ async def run_code_reviewer(
         tags=["code_reviewer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = code_reviewer_task_prompt(
         worktree_path=worktree_path,
         coder_result=coder_result,
@@ -1073,6 +1117,8 @@ async def run_code_reviewer(
         project_context=project_context,
         qa_ran=qa_ran,
         memory_context=memory_context,
+        workspace_manifest=ws_manifest,
+        target_repo=target_repo,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1127,6 +1173,8 @@ async def run_qa_synthesizer(
     model: str = "haiku",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
+    target_repo: str = "",
 ) -> dict:
     """Merge QA and review feedback, decide fix/approve/block.
 
@@ -1142,6 +1190,8 @@ async def run_qa_synthesizer(
         tags=["qa_synthesizer", "start"],
     )
 
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+
     task_prompt = qa_synthesizer_task_prompt(
         qa_result=qa_result,
         review_result=review_result,
@@ -1149,6 +1199,7 @@ async def run_qa_synthesizer(
         iteration_id=iteration_id,
         worktree_path=worktree_path,
         issue_summary=issue_summary,
+        workspace_manifest=ws_manifest,
     )
 
     ai = AgentAI(AgentAIConfig(
@@ -1222,6 +1273,7 @@ async def generate_fix_issues(
     model: str = "sonnet",
     permission_mode: str = "",
     ai_provider: str = "claude",
+    workspace_manifest: dict | None = None,
 ) -> dict:
     """Generate targeted fix issues from failed verification criteria.
 
@@ -1241,6 +1293,18 @@ async def generate_fix_issues(
         dag_state_summary=dag_state,
         prd=prd,
     )
+
+    # If multi-repo, ensure generated fix issues get target_repo set
+    ws_manifest = _maybe_workspace_manifest(workspace_manifest)
+    if ws_manifest and len(ws_manifest.repos) > 1:
+        task_prompt += (
+            "\n\n## Multi-Repo Context\n"
+            "This workspace spans multiple repositories. For each fix issue you generate, "
+            "include a `target_repo` field specifying which repository the fix should be "
+            "applied to. Available repos:\n"
+        )
+        for repo in ws_manifest.repos:
+            task_prompt += f"- **{repo.repo_name}** (role: {repo.role}): `{repo.absolute_path}`\n"
 
     class FixGeneratorOutput(BaseModel):
         fix_issues: list[dict] = []

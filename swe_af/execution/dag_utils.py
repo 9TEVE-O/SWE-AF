@@ -132,6 +132,13 @@ def apply_replan(dag_state: DAGState, decision: ReplanDecision) -> DAGState:
             remaining_by_name[name].update(updated)
 
     # 4. Add new issues (with next-available sequence numbers)
+    # Build target_repo lookup from all existing issues for inheritance
+    _target_repo_by_name: dict[str, str] = {
+        i["name"]: i.get("target_repo", "")
+        for i in dag_state.all_issues
+        if i.get("target_repo")
+    }
+
     max_seq = max((i.get("sequence_number") or 0 for i in dag_state.all_issues), default=0)
     for new_issue in decision.new_issues:
         name = new_issue.get("name", "")
@@ -139,6 +146,13 @@ def apply_replan(dag_state: DAGState, decision: ReplanDecision) -> DAGState:
             if not new_issue.get("sequence_number"):
                 max_seq += 1
                 new_issue["sequence_number"] = max_seq
+            # Inherit target_repo from dependencies if not explicitly set
+            if not new_issue.get("target_repo") and dag_state.workspace_manifest:
+                for dep in new_issue.get("depends_on", []):
+                    inherited = _target_repo_by_name.get(dep, "")
+                    if inherited:
+                        new_issue["target_repo"] = inherited
+                        break
             remaining_by_name[name] = new_issue
 
     remaining = list(remaining_by_name.values())
