@@ -61,6 +61,65 @@ JSON
 
 Swap `models.default` and any role key (`coder`, `qa`, `architect`, etc.) to any model your runtime supports.
 
+## Multi-Repository Workspace Support
+
+SWE-AF supports coordinated work across multiple repositories in a single build. This is useful when your project consists of a primary application plus shared libraries, monorepo sub-projects, or dependent microservices.
+
+### Use Cases
+
+- **Primary App + Shared Libraries**: Build a web application that depends on a shared utilities or SDK library.
+- **Monorepo Sub-Projects**: Coordinate changes across multiple packages in a monorepo (each repo_url points to a sub-directory or separate repo).
+- **Dependent Microservices**: When a feature spans multiple services (e.g., API + Worker Queue), define roles to orchestrate changes across boundaries.
+
+### Single-Repo (Backward Compatible)
+
+Single-repository builds work exactly as before — just use `repo_url` or `repo_path` at the top level:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "goal": "Add JWT auth",
+      "repo_url": "https://github.com/user/my-project"
+    }
+  }'
+```
+
+### Multi-Repo Configuration
+
+Pass `config.repos` as an array of repository objects, each with `repo_url` (or `repo_path`) and a `role`:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "goal": "Add JWT auth across API and shared-lib",
+      "config": {
+        "repos": [
+          {
+            "repo_url": "https://github.com/org/main-app",
+            "role": "primary"
+          },
+          {
+            "repo_url": "https://github.com/org/shared-lib",
+            "role": "dependency"
+          }
+        ],
+        "runtime": "claude_code",
+        "models": {
+          "default": "sonnet"
+        }
+      }
+    }
+  }'
+```
+
+**Roles:**
+- `primary`: The main application being built. Changes here drive the build; failures block progress.
+- `dependency`: Libraries or services that may be modified to support the primary repo. Failures are captured but don't block.
+
 ## Autonomous Build Spotlight
 
 Rust-based Python compiler benchmark (built autonomously):
