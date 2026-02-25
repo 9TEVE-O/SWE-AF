@@ -100,6 +100,48 @@ curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
 
 Available roles: `pm`, `architect`, `tech_lead`, `sprint_planner`, `coder`, `qa`, `code_reviewer`, `qa_synthesizer`, `replan`, `retry_advisor`, `issue_writer`, `issue_advisor`, `verifier`, `git`, `merger`, `integration_tester`
 
+## Multi-Repo Builds
+
+SWE-AF supports coordinated work across multiple repositories in a single build. Pass `config.repos` as an array of repository objects, each with a `repo_url` (or `repo_path`) and a `role`. Single-repo builds remain backward compatible—just use `repo_url` or `repo_path` at the top level.
+
+### Complete Example: Primary App + Dependency
+
+```bash
+curl -X POST http://localhost:8080/api/v1/execute/async/swe-planner.build \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "goal": "Add JWT auth across API and shared-lib",
+      "config": {
+        "repos": [
+          {
+            "repo_url": "https://github.com/org/main-app",
+            "role": "primary"
+          },
+          {
+            "repo_url": "https://github.com/org/shared-lib",
+            "role": "dependency"
+          }
+        ],
+        "runtime": "claude_code",
+        "models": {
+          "default": "sonnet"
+        }
+      }
+    }
+  }'
+```
+
+**Repository roles:**
+- `primary`: The main application being built. Changes here drive the build; failures block progress.
+- `dependency`: Libraries or services that may be modified to support the primary repo. Failures are captured but don't block primary build progress.
+
+### Use Cases
+
+- **Primary App + Shared Libraries**: Coordinate changes between a web application and its shared utilities/SDK.
+- **Monorepo Sub-Projects**: Define multiple repos in a monorepo structure and orchestrate cross-package changes.
+- **Microservices**: When a feature spans an API service and a worker service, define roles to manage interdependencies.
+
 ## Requirements for open_code Runtime
 
 1. `opencode` CLI installed and in PATH
