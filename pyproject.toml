@@ -9,6 +9,10 @@ dependencies = [
     # Compatibility pin: newer SDK builds have surfaced
     # "Unknown message type: rate_limit_event" during streaming.
     "claude-agent-sdk==0.1.20",
+    # able-to-answer dependencies
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -22,4 +26,5 @@ swe-af = "swe_af.app:main"
 swe-fast = "swe_af.fast.app:main"
 
 [tool.setuptools.packages.find]
-include = ["swe_af*"]
+where = [".", "src"]
+include = ["swe_af*", "able_to_answer*"]
