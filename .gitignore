@@ -11,6 +11,9 @@ htmlcov/
 .venv/
 venv/
 
+# Database files
+*.sqlite3
+
 # Environment
 .env
 .env.*
