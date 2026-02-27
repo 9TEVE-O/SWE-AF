@@ -1,12 +1,16 @@
 PYTHON ?= python3
 
-.PHONY: test check clean clean-examples
+.PHONY: test check clean clean-examples run
 
 test:
 	$(PYTHON) -m pytest tests/ -x -q
 
 check: test
 	$(PYTHON) -m compileall -q swe_af/
+	$(PYTHON) -m compileall -q src/able_to_answer/
+
+run:
+	$(PYTHON) -m uvicorn able_to_answer.api.main:app --reload --host 0.0.0.0 --port 8000
 
 clean:
 	find . -path "./.git" -prune -o -path "./.venv" -prune -o -type f \( -name "*.pyc" -o -name ".DS_Store" -o -name "*.bak" \) -delete
