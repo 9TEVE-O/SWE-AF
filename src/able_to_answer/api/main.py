@@ -5,6 +5,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 
+from able_to_answer.context.service import ContextAssembler
 from able_to_answer.core.config import settings
 from able_to_answer.core.logging import logger
 from able_to_answer.core.storage import SqliteStore
@@ -14,6 +15,8 @@ from able_to_answer.audit.service import build_audit_pack
 from able_to_answer.api.models import (
     AskRequest,
     AskResponse,
+    GetContextRequest,
+    GetContextResponse,
     IngestResponse,
     IngestTextRequest,
 )
@@ -25,6 +28,9 @@ app = FastAPI(
 )
 
 store = SqliteStore(settings.db_path)
+
+# Singleton Context Assembler; tests may swap this out directly.
+_context_assembler = ContextAssembler()
 
 
 @app.get("/health")
@@ -119,4 +125,42 @@ def ask(req: AskRequest):
         citations=cited_dicts,
         audit_id=audit_id,
         audit_pack=pack,
+    )
+
+
+@app.post("/get-context", response_model=GetContextResponse)
+def get_context(req: GetContextRequest) -> GetContextResponse:
+    """Assemble a Context Bundle for an agent.
+
+    Returns documents and ADRs the requesting user is authorised to see,
+    each decorated with Source, Date, and Security Level metadata.
+    """
+    bundle = _context_assembler.get_context(
+        agent_id=req.agent_id,
+        user_id=req.user_id,
+    )
+    return GetContextResponse(
+        agent_id=bundle.agent_id,
+        retrieved_at=bundle.retrieved_at,
+        documents=[
+            {
+                "document_id": d.document_id,
+                "source": d.source,
+                "date": d.date,
+                "security_level": d.security_level,
+                "summary": d.summary,
+            }
+            for d in bundle.documents
+        ],
+        adrs=[
+            {
+                "adr_id": a.adr_id,
+                "title": a.title,
+                "source": a.source,
+                "date": a.date,
+                "security_level": a.security_level,
+                "body": a.body,
+            }
+            for a in bundle.adrs
+        ],
     )
