@@ -6,7 +6,9 @@ from able_to_answer.context.models import SecurityLevel
 
 
 class IngestTextRequest(BaseModel):
-    source_name: str | None = Field(default=None, description="Optional label for the document source")
+    source_name: str | None = Field(
+        default=None, description="Optional label for the document source"
+    )
     text: str = Field(..., description="Raw text to ingest")
 
 
@@ -33,7 +35,9 @@ class AskResponse(BaseModel):
 
 class GetContextRequest(BaseModel):
     agent_id: str = Field(..., description="Identifier of the requesting agent")
-    user_id: str | None = Field(default=None, description="User on behalf of whom context is assembled")
+    user_id: str | None = Field(
+        default=None, description="User on behalf of whom context is assembled"
+    )
 
 
 class DocumentMetadataResponse(BaseModel):
@@ -58,3 +62,18 @@ class GetContextResponse(BaseModel):
     retrieved_at: int
     documents: list[DocumentMetadataResponse]
     adrs: list[ADRRecordResponse]
+
+
+# ---------------------------------------------------------------------------
+# Neon Management API v2 models
+# ---------------------------------------------------------------------------
+
+
+class NeonCreateProjectRequest(BaseModel):
+    name: str | None = Field(default=None, description="Human-readable project name")
+    region_id: str | None = Field(
+        default=None, description="Neon region (e.g. 'aws-us-east-2')"
+    )
+    pg_version: int | None = Field(
+        default=None, description="PostgreSQL major version (e.g. 16)"
+    )

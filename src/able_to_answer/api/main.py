@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from able_to_answer.context.service import ContextAssembler
 from able_to_answer.core.config import settings
 from able_to_answer.core.logging import logger
+from able_to_answer.core.neon_client import NeonAPIError, NeonClient
 from able_to_answer.core.storage import SqliteStore
 from able_to_answer.ingestion.service import ingest_text
 from able_to_answer.retrieval.service import retrieve_top_chunks
@@ -19,6 +20,7 @@ from able_to_answer.api.models import (
     GetContextResponse,
     IngestResponse,
     IngestTextRequest,
+    NeonCreateProjectRequest,
 )
 
 app = FastAPI(
@@ -78,7 +80,9 @@ def ask(req: AskRequest):
     if not doc:
         return JSONResponse(status_code=404, content={"error": "document_not_found"})
 
-    citations = retrieve_top_chunks(store, document_id=req.document_id, question=req.question)
+    citations = retrieve_top_chunks(
+        store, document_id=req.document_id, question=req.question
+    )
 
     # MVP "answer builder": return the highest-scoring chunk(s) as an extractive answer.
     # This proves the end-to-end contract + citations + audit trail without model integration.
@@ -116,7 +120,9 @@ def ask(req: AskRequest):
         pack=pack,
     )
 
-    logger.info("ask: doc=%s audit=%s citations=%d", req.document_id, audit_id, len(citations))
+    logger.info(
+        "ask: doc=%s audit=%s citations=%d", req.document_id, audit_id, len(citations)
+    )
 
     return AskResponse(
         document_id=req.document_id,
@@ -164,3 +170,130 @@ def get_context(req: GetContextRequest) -> GetContextResponse:
             for a in bundle.adrs
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Neon Management API v2 proxy routes
+# ---------------------------------------------------------------------------
+
+
+def _neon_client() -> NeonClient:
+    """Return a NeonClient configured from application settings."""
+    return NeonClient(
+        api_key=settings.neon_api_key,
+        base_url=settings.neon_api_base_url,
+    )
+
+
+def _neon_error(exc: NeonAPIError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.message},
+    )
+
+
+@app.get("/neon/projects")
+def neon_list_projects(
+    limit: int | None = Query(
+        default=None, description="Maximum number of projects to return"
+    ),
+    cursor: str | None = Query(default=None, description="Pagination cursor"),
+):
+    """List all Neon projects for the configured API key.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().list_projects(limit=limit, cursor=cursor)
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.post("/neon/projects", status_code=201)
+def neon_create_project(req: NeonCreateProjectRequest):
+    """Create a new Neon project.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().create_project(
+            name=req.name,
+            region_id=req.region_id,
+            pg_version=req.pg_version,
+        )
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.get("/neon/projects/{project_id}")
+def neon_get_project(project_id: str):
+    """Get details for a single Neon project.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().get_project(project_id)
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.delete("/neon/projects/{project_id}")
+def neon_delete_project(project_id: str):
+    """Delete a Neon project.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().delete_project(project_id)
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.get("/neon/projects/{project_id}/branches")
+def neon_list_branches(project_id: str):
+    """List all branches for a Neon project.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().list_branches(project_id)
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.get("/neon/projects/{project_id}/branches/{branch_id}/databases")
+def neon_list_databases(project_id: str, branch_id: str):
+    """List all databases for a Neon project branch.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().list_databases(project_id, branch_id)
+    except NeonAPIError as exc:
+        return _neon_error(exc)
+
+
+@app.get("/neon/projects/{project_id}/connection_uri")
+def neon_get_connection_uri(
+    project_id: str,
+    branch_id: str | None = Query(default=None),
+    endpoint_id: str | None = Query(default=None),
+    database_name: str | None = Query(default=None),
+    role_name: str | None = Query(default=None),
+    pooled: bool = Query(default=False),
+):
+    """Get a PostgreSQL connection URI for a Neon project.
+
+    Requires ``NEON_API_KEY`` to be set in the environment.
+    """
+    try:
+        return _neon_client().get_connection_uri(
+            project_id,
+            branch_id=branch_id,
+            endpoint_id=endpoint_id,
+            database_name=database_name,
+            role_name=role_name,
+            pooled=pooled,
+        )
+    except NeonAPIError as exc:
+        return _neon_error(exc)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+_NEON_BASE_URL = "https://console.neon.tech/api/v2"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -11,6 +13,9 @@ class Settings:
     chunk_overlap_chars: int = int(os.getenv("ATA_CHUNK_OVERLAP_CHARS", "200"))
     max_context_chunks: int = int(os.getenv("ATA_MAX_CONTEXT_CHUNKS", "6"))
     max_answer_chars: int = int(os.getenv("ATA_MAX_ANSWER_CHARS", "1800"))
+    # Neon Management API v2 (https://console.neon.tech/api/v2)
+    neon_api_key: str | None = os.getenv("NEON_API_KEY")
+    neon_api_base_url: str = os.getenv("NEON_API_BASE_URL", _NEON_BASE_URL)
 
 
 settings = Settings()
